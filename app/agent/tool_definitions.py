@@ -108,4 +108,68 @@ AGENT_TOOLS = [
         },
         "strict": True,
     },
+    {
+        "type": "function",
+        "name": "calculate_re24",
+        "description": (
+            "플레이 전후 주자·아웃 상황과 실제 득점을 사용해 "
+            "득점 기대값 변화(RE24)를 계산한다. "
+            "예시 행렬을 사용하며 KBO 시즌별 실측값은 아니다. "
+            "플레이 결과가 확인되지 않았다면 임의로 생성하지 않는다."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "before": {
+                    "type": "object",
+                    "properties": {
+                        "outs": {"type": "integer"},
+                        "bases": {
+                            "type": "string",
+                            "enum": [
+                                "000",
+                                "100",
+                                "010",
+                                "110",
+                                "001",
+                                "101",
+                                "011",
+                                "111",
+                            ],
+                        },
+                    },
+                    "required": ["outs", "bases"],
+                    "additionalProperties": False,
+                },
+                "after": {
+                    "type": "object",
+                    "properties": {
+                        "outs": {"type": "integer"},
+                        "bases": {
+                            "type": "string",
+                            "enum": [
+                                "000",
+                                "100",
+                                "010",
+                                "110",
+                                "001",
+                                "101",
+                                "011",
+                                "111",
+                            ],
+                        },
+                    },
+                    "required": ["outs", "bases"],
+                    "additionalProperties": False,
+                },
+                "runs_scored": {
+                    "type": "integer",
+                    "description": "해당 플레이에서 발생한 득점",
+                },
+            },
+            "required": ["before", "after", "runs_scored"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
 ]
