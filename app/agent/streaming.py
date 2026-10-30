@@ -11,6 +11,7 @@ from app.agent.service import MAX_TOOL_ROUNDS, SYSTEM_PROMPT
 from app.agent.tool_definitions import AGENT_TOOLS
 from app.core.config import settings
 from app.tools.registry import execute_tool
+from app.agent.context import build_conversation_input
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +20,13 @@ async def stream_agent(
     message: str,
     session: AsyncSession,
     client: AsyncOpenAI,
+    history: list[dict[str, str]] | None = None,
 ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
-    conversation: list[Any] = [
-        {"role": "user", "content": message}
-    ]
+    # 과거 대화는 DB에서 읽은 메시지만 사용한다.
+    conversation: list[Any] = build_conversation_input(
+        message=message,
+        history=history,
+    )
     tool_history = []
     answer_started = False
 

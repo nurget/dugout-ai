@@ -77,3 +77,40 @@ h2 { font-size: 17px; margin-top: 0; }
 
 .answer { white-space: pre-wrap; line-height: 1.8; min-height: 70px; }
 .error { color: #ff9b94; }
+
+.conversation-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.conversation-controls small {
+  color: #91a0b2;
+}
+
+.saved-messages {
+  display: grid;
+  gap: 12px;
+}
+
+.saved-message {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #243140;
+}
+
+.saved-message.user {
+  background: #263e37;
+}
+
+.saved-message strong {
+  font-size: 12px;
+  color: #77bd9e;
+}
+
+.saved-message p {
+  white-space: pre-wrap;
+  line-height: 1.6;
+  margin-bottom: 0;
+}
