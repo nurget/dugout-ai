@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { useAgentStream } from "./hooks/useAgentStream";
 import "./App.css";
 
+const EXAMPLE_QUESTION =
+  "7회말 1사 1루, 선발 투수가 95구입니다. 지금 교체하는 편이 나을까요?";
+
 type SavedMessage = {
   id: string;
   role: "user" | "assistant";
@@ -9,39 +12,27 @@ type SavedMessage = {
   created_at: string;
 };
 
-const EXAMPLE_QUESTION =
-  "경기 ID 1의 상태 ID 1과 선수 ID 1을 조회하고 KIA의 다른 투수 후보를 알려줘.";
+const STATUS_LABEL: Record<string, string> = {
+  idle: "준비됨",
+  connecting: "연결 중",
+  analyzing: "데이터 확인 중",
+  generating: "분석 중",
+  completed: "완료",
+  cancelled: "중단됨",
+  failed: "실패",
+};
 
 function App() {
   const [message, setMessage] = useState(EXAMPLE_QUESTION);
   const [savedMessages, setSavedMessages] = useState<SavedMessage[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
-
   const {
-    conversationId,
-    answer,
-    tools,
-    status,
-    error,
-    historyVersion,
-    sendMessage,
-    cancel,
-    startNewConversation,
+    conversationId, answer, tools, status, error, historyVersion,
+    sendMessage, cancel, startNewConversation,
   } = useAgentStream();
 
-  const loading = [
-    "connecting",
-    "analyzing",
-    "generating",
-  ].includes(status);
-
   useEffect(() => {
-    if (!conversationId) {
-      setSavedMessages([]);
-      setHistoryError(null);
-      return;
-    }
-
+    if (!conversationId) return;
     const controller = new AbortController();
 
     async function loadMessages() {
@@ -50,45 +41,33 @@ function App() {
           `/api/agent/conversations/${conversationId}/messages`,
           { signal: controller.signal }
         );
-
-        if (!response.ok) {
-          throw new Error(`대화 조회 실패: ${response.status}`);
-        }
-
-        const data: { messages: SavedMessage[] } =
-          await response.json();
-
+        if (!response.ok) throw new Error(`대화 조회 실패: ${response.status}`);
+        const data: { messages: SavedMessage[] } = await response.json();
+        setSavedMessages(data.messages);
+        setHistoryError(null);
+      } catch (loadError) {
         if (!controller.signal.aborted) {
-          setSavedMessages(data.messages);
-          setHistoryError(null);
+          setHistoryError(loadError instanceof Error ? loadError.message : "대화 조회 오류");
+          console.error("대화 복원 실패", loadError);
         }
-      } catch (err) {
-        if (controller.signal.aborted) return;
-
-        const message =
-          err instanceof Error ? err.message : "대화 조회 오류";
-
-        setHistoryError(message);
-        console.error("[DUGOUT] 대화 복원 실패:", err);
       }
     }
 
     void loadMessages();
-
     return () => controller.abort();
   }, [conversationId, historyVersion]);
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  const loading = ["connecting", "analyzing", "generating"].includes(status);
+  const displayedMessages = conversationId ? savedMessages : [];
 
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     if (!message.trim() || loading) return;
-
     void sendMessage(message.trim());
   }
 
   function handleNewConversation() {
     if (loading) return;
-
     startNewConversation();
     setSavedMessages([]);
     setHistoryError(null);
@@ -96,133 +75,73 @@ function App() {
   }
 
   return (
-    <main className="app">
-      <header>
-        <div className="eyebrow">
-          BASEBALL DECISION INTELLIGENCE
+    <main className="dashboard">
+      <header className="app-header">
+        <div className="wordmark">DUGOUT</div>
+        <div className="header-actions">
+          <span className={`run-status ${loading ? "active" : ""}`}>
+            <i />{STATUS_LABEL[status] ?? status}
+          </span>
+          <button type="button" className="text-button" onClick={handleNewConversation} disabled={loading}>
+            새 분석
+          </button>
         </div>
-        <h1>DUGOUT AI</h1>
-        <p>
-          경기 데이터를 확인하고, 근거 있는 야구 전략을 분석합니다.
-        </p>
       </header>
 
-      <section className="panel">
-        <form onSubmit={handleSubmit}>
-          <label htmlFor="question">
-            감독에게 묻고 싶은 질문
-          </label>
+      <section className="game-overview" aria-label="현재 경기 상황">
+        <div className="game-title">
+          <span className="section-kicker">GAME SITUATION</span>
+          <strong>KIA <b>3</b><em>:</em><b>3</b> 삼성</strong>
+        </div>
+        <div className="overview-metric"><span>이닝</span><strong>7회말</strong></div>
+        <div className="overview-metric"><span>아웃 / 주자</span><strong>1사 · 1루</strong></div>
+        <div className="overview-metric"><span>현재 투수</span><strong>선발 · 95구</strong></div>
+        <div className="overview-metric"><span>다음 타자</span><strong>좌타자</strong></div>
+      </section>
 
-          <textarea
-            id="question"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            rows={4}
-            maxLength={1000}
-            placeholder="경기 상황이나 투수 교체 전략을 질문해 보세요."
-          />
+      <section className="main-panel" aria-label="투수 교체 분석">
+        <div className="panel-heading">
+          <div><span className="section-kicker">ANALYSIS</span><h1>투수 교체 분석</h1></div>
+          {conversationId && <span className="record-id">ID {conversationId.slice(0, 8)}</span>}
+        </div>
 
-          <div className="actions">
-            <button type="submit" disabled={loading || !message.trim()}>
-              {loading ? "분석 중..." : "분석 시작"}
-            </button>
+        <div className="analysis-content" aria-live="polite">
+          {displayedMessages.map((item) => (
+            <article className={`message ${item.role}`} key={item.id}>
+              <span>{item.role === "user" ? "질문" : "분석 결과"}</span>
+              <p>{item.content}</p>
+            </article>
+          ))}
+          {answer && <article className="message assistant current"><span>분석 결과</span><p>{answer}</p></article>}
+          {!answer && displayedMessages.length === 0 && !loading && (
+            <div className="empty-state"><p>경기 상황에 대해 질문을 입력하세요.</p></div>
+          )}
+          {loading && !answer && <div className="loading-line"><i /><span>경기 데이터를 확인하고 있습니다</span></div>}
+        </div>
 
-            {loading && (
-              <button
-                type="button"
-                className="secondary"
-                onClick={cancel}
-              >
-                중단
-              </button>
-            )}
+        {tools.length > 0 && (
+          <div className="tool-trace">
+            <span>확인한 데이터</span>
+            {tools.map((tool, index) => (
+              <span className="tool-item" key={`${tool.tool}-${index}`}>
+                <i className={tool.ok === false ? "fail" : tool.ok ? "done" : ""} />
+                {tool.tool.replaceAll("_", " ")}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {historyError && <p className="error">저장된 대화를 불러오지 못했습니다: {historyError}</p>}
+        {error && <p className="error">{error}</p>}
+
+        <form className="composer" onSubmit={handleSubmit}>
+          <label htmlFor="question">분석할 상황</label>
+          <textarea id="question" value={message} onChange={(event) => setMessage(event.target.value)} rows={2} maxLength={1000} placeholder="질문을 입력하세요" />
+          <div className="composer-actions">
+            <span>분석 결과는 의사결정 참고용입니다.</span>
+            {loading ? <button type="button" className="cancel" onClick={cancel}>중단</button> : <button type="submit" disabled={!message.trim()}>분석하기</button>}
           </div>
         </form>
-
-        <div className="conversation-controls">
-          <button
-            type="button"
-            className="secondary"
-            onClick={handleNewConversation}
-            disabled={loading}
-          >
-            새 대화
-          </button>
-
-          {conversationId && (
-            <small>
-              대화 ID: {conversationId.slice(0, 8)}...
-            </small>
-          )}
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="section-title">
-          <h2>Agent 실행 과정</h2>
-          <span className="status">{status}</span>
-        </div>
-
-        {tools.length === 0 ? (
-          <p className="muted">
-            {loading
-              ? "Agent가 필요한 정보를 확인하고 있습니다."
-              : "아직 실행한 Tool이 없습니다."}
-          </p>
-        ) : (
-          <div className="tool-list">
-            {tools.map((tool, index) => (
-              <div className="tool" key={index}>
-                <strong>{tool.tool}</strong>
-                <span>
-                  {tool.ok === undefined
-                    ? "실행 중"
-                    : tool.ok
-                      ? "성공"
-                      : `실패: ${tool.error?.code ?? "UNKNOWN"}`}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="panel">
-        <h2>이전 대화</h2>
-
-        {historyError && (
-          <p className="error">{historyError}</p>
-        )}
-
-        {savedMessages.length === 0 ? (
-          <p className="muted">저장된 대화가 없습니다.</p>
-        ) : (
-          <div className="saved-messages">
-            {savedMessages.map((item) => (
-              <div
-                key={item.id}
-                className={`saved-message ${item.role}`}
-              >
-                <strong>
-                  {item.role === "user" ? "사용자" : "DUGOUT AI"}
-                </strong>
-                <p>{item.content}</p>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="panel">
-        <h2>AI 분석 결과</h2>
-
-        <div className="answer" aria-live="polite">
-          {status === "completed"
-            ? "분석이 완료되었습니다. 이전 대화에서 결과를 확인할 수 있습니다."
-            : answer || "아직 분석 결과가 없습니다."}
-        </div>
-
-        {error && <p className="error">{error}</p>}
       </section>
     </main>
   );
