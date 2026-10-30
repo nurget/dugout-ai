@@ -4,6 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.game import Game, GameState
 from app.models.player import Player
 
+from app.simulation.pitching import (
+    PitchingScenario,
+    evaluate_pitching_decision,
+)
 
 class ToolNotFoundError(Exception):
     pass
@@ -94,3 +98,20 @@ async def get_bullpen_options(
         ],
         "note": "최근 등판 및 휴식 정보는 아직 반영되지 않았습니다.",
     }
+
+async def simulate_pitching_decision(
+    session: AsyncSession,
+    inning: int,
+    outs: int,
+    pitch_count: int,
+    runner_on_first: bool = False,
+) -> dict:
+    # 다른 Tool과 인터페이스를 맞추기 위해 session을 받음요
+    scenario = PitchingScenario(
+        inning=inning,
+        outs=outs,
+        pitch_count=pitch_count,
+        runner_on_first=runner_on_first,
+    )
+
+    return evaluate_pitching_decision(scenario)

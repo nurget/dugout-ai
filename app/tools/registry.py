@@ -3,6 +3,9 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.tools.schemas import PitchingDecisionInput
+from app.tools.baseball import simulate_pitching_decision
+
 from app.tools.baseball import (
     ToolNotFoundError,
     get_game_state,
@@ -16,7 +19,6 @@ from app.tools.schemas import (
     BullpenOptionsInput,
 )
 
-
 TOOL_REGISTRY = {
     "get_game_state": (
         GameStateInput,
@@ -29,6 +31,10 @@ TOOL_REGISTRY = {
     "get_bullpen_options": (
         BullpenOptionsInput,
         get_bullpen_options,
+    ),
+    "simulate_pitching_decision": (
+        PitchingDecisionInput,
+        simulate_pitching_decision,
     ),
 }
 
