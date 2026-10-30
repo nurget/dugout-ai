@@ -69,4 +69,43 @@ AGENT_TOOLS = [
         },
         "strict": True,
     },
+    {
+        "type": "function",
+        "name": "simulate_pitching_decision",
+        "description": (
+            "경기의 이닝, 아웃카운트, 투구 수, 1루 주자 여부를 기준으로 "
+            "투수 유지와 교체 검토에 필요한 위험 요인을 평가한다. "
+            "학습 모델이 아닌 가정 기반 규칙 평가이며 실제 승률을 계산하지 않는다. "
+            "가능하면 먼저 get_game_state로 실제 경기 정보를 조회한다."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "inning": {
+                    "type": "integer",
+                    "description": "현재 이닝",
+                },
+                "outs": {
+                    "type": "integer",
+                    "description": "현재 아웃카운트",
+                },
+                "pitch_count": {
+                    "type": "integer",
+                    "description": "현재 투수의 투구 수",
+                },
+                "runner_on_first": {
+                    "type": "boolean",
+                    "description": "1루 주자 존재 여부",
+                },
+            },
+            "required": [
+                "inning",
+                "outs",
+                "pitch_count",
+                "runner_on_first",
+            ],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
 ]

@@ -16,3 +16,9 @@ class BullpenOptionsInput(BaseModel):
         default=None,
         gt=0,
     )
+    
+class PitchingDecisionInput(BaseModel):
+    inning: int = Field(ge=1, le=12)
+    outs: int = Field(ge=0, le=2)
+    pitch_count: int = Field(ge=0, le=200)
+    runner_on_first: bool = False
