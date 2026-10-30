@@ -2,6 +2,8 @@ from fastapi import FastAPI
 
 from app.routers.health import router as health_router
 from app.routers.analysis import router as analysis_router
+from app.routers.players import router as players_router
+from app.routers.games import router as games_router
 
 app = FastAPI(
     title="DUGOUT AI",
@@ -11,6 +13,8 @@ app = FastAPI(
 
 app.include_router(health_router)
 app.include_router(analysis_router)
+app.include_router(players_router)
+app.include_router(games_router)
 
 
 @app.get("/")
