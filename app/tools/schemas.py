@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 
+from app.sabermetrics.run_expectancy import RE24Input
 
 class GameStateInput(BaseModel):
     game_id: int = Field(gt=0)

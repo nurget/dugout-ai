@@ -9,6 +9,11 @@ from app.simulation.pitching import (
     evaluate_pitching_decision,
 )
 
+from app.sabermetrics.run_expectancy import (
+    RE24Input,
+    calculate_re24,
+)
+
 class ToolNotFoundError(Exception):
     pass
 
@@ -115,3 +120,18 @@ async def simulate_pitching_decision(
     )
 
     return evaluate_pitching_decision(scenario)
+
+async def calculate_re24_tool(
+    session: AsyncSession,
+    before: dict,
+    after: dict,
+    runs_scored: int,
+) -> dict:
+    # 현재 Registry는 DB 조회 Tool과 계산 Tool을 같은 인터페이스로 실행한다.
+    data = RE24Input(
+        before=before,
+        after=after,
+        runs_scored=runs_scored,
+    )
+
+    return calculate_re24(data)

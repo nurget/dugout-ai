@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.tools.schemas import PitchingDecisionInput
 from app.tools.baseball import simulate_pitching_decision
+from app.sabermetrics.run_expectancy import RE24Input
+from app.tools.baseball import calculate_re24_tool
 
 from app.tools.baseball import (
     ToolNotFoundError,
@@ -36,8 +38,11 @@ TOOL_REGISTRY = {
         PitchingDecisionInput,
         simulate_pitching_decision,
     ),
+    "calculate_re24": (
+        RE24Input,
+        calculate_re24_tool,
+    ),
 }
-
 
 async def execute_tool(
     session: AsyncSession,
