@@ -8,7 +8,7 @@ from typing import Any
 from openai import AsyncOpenAI, OpenAIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent.context import build_conversation_input
+from app.agent.context import AgentContext, build_conversation_input
 from app.agent.metrics import AgentMetrics
 from app.agent.service import MAX_TOOL_ROUNDS, SYSTEM_PROMPT
 from app.agent.tool_definitions import AGENT_TOOLS
@@ -23,15 +23,16 @@ async def stream_agent(
     session: AsyncSession,
     client: AsyncOpenAI,
     history: list[dict[str, str]] | None = None,
+    context: AgentContext | None = None,
 ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
     # 과거 대화는 DB에서 읽은 메시지만 사용한다.
     conversation: list[Any] = build_conversation_input(
         message=message,
         history=history,
     )
+
     metrics = AgentMetrics()
     answer_started = False
-    tool_count = 0
 
     yield "started", {
         "run_id": metrics.run_id,
@@ -40,7 +41,6 @@ async def stream_agent(
 
     try:
         for round_number in range(1, MAX_TOOL_ROUNDS + 1):
-            # Tool 인자는 응답 완료 후 실행하지만, 일반 텍스트는 즉시 전송한다.
             stream = await client.responses.create(
                 model=settings.openai_model,
                 instructions=SYSTEM_PROMPT,
@@ -59,17 +59,25 @@ async def stream_agent(
                 if event.type == "response.output_text.delta":
                     round_answer = True
                     answer_started = True
-                    yield "answer_delta", {"delta": event.delta}
+
+                    yield "answer_delta", {
+                        "delta": event.delta,
+                    }
 
                 elif event.type == "response.completed":
                     completed_response = event.response
                     usage = getattr(event.response, "usage", None)
+
                     metrics.record_llm_call(
                         input_tokens=(
-                            usage.input_tokens if usage is not None else None
+                            usage.input_tokens
+                            if usage is not None
+                            else None
                         ),
                         output_tokens=(
-                            usage.output_tokens if usage is not None else None
+                            usage.output_tokens
+                            if usage is not None
+                            else None
                         ),
                     )
 
@@ -84,13 +92,16 @@ async def stream_agent(
                     )
 
             if completed_response is None:
-                raise RuntimeError("모델 응답 완료 이벤트를 받지 못했습니다.")
+                raise RuntimeError(
+                    "모델 응답 완료 이벤트를 받지 못했습니다."
+                )
 
-            # 모델의 function_call을 포함한 응답 전체를 다음 round에 보존한다.
+            # Function Call 정보를 다음 LLM 요청에도 유지한다.
             conversation.extend(
                 item.model_dump(exclude_none=True)
                 for item in completed_response.output
             )
+
             tool_calls = [
                 item
                 for item in completed_response.output
@@ -99,7 +110,9 @@ async def stream_agent(
 
             if not tool_calls:
                 if not round_answer:
-                    raise RuntimeError("모델이 답변을 생성하지 않았습니다.")
+                    raise RuntimeError(
+                        "모델이 답변을 생성하지 않았습니다."
+                    )
 
                 summary = metrics.snapshot()
 
@@ -119,7 +132,6 @@ async def stream_agent(
                 return
 
             for tool_call in tool_calls:
-                tool_count += 1
                 yield "tool_start", {
                     "tool": tool_call.name,
                     "round": round_number,
@@ -128,16 +140,21 @@ async def stream_agent(
                 tool_started_at = perf_counter()
 
                 try:
-                    arguments = json.loads(tool_call.arguments)
+                    arguments = json.loads(
+                        tool_call.arguments
+                    )
 
                     if not isinstance(arguments, dict):
-                        raise ValueError("Tool 인자는 JSON 객체여야 합니다.")
+                        raise ValueError(
+                            "Tool 인자는 JSON 객체여야 합니다."
+                        )
 
                     result = await asyncio.wait_for(
                         execute_tool(
                             session=session,
                             tool_name=tool_call.name,
                             arguments=arguments,
+                            context=context,
                         ),
                         timeout=10.0,
                     )
@@ -159,9 +176,13 @@ async def stream_agent(
                             "message": "Tool 실행 시간이 초과됐습니다.",
                         },
                     }
+
                     await session.rollback()
 
-                duration_ms = (perf_counter() - tool_started_at) * 1000
+                duration_ms = (
+                    perf_counter() - tool_started_at
+                ) * 1000
+
                 metrics.record_tool(
                     name=tool_call.name,
                     duration_ms=duration_ms,
@@ -179,11 +200,16 @@ async def stream_agent(
                     {
                         "type": "function_call_output",
                         "call_id": tool_call.call_id,
-                        "output": json.dumps(result, ensure_ascii=False),
+                        "output": json.dumps(
+                            result,
+                            ensure_ascii=False,
+                        ),
                     }
                 )
 
-        raise RuntimeError("Agent 최대 실행 단계를 초과했습니다.")
+        raise RuntimeError(
+            "Agent 최대 실행 단계를 초과했습니다."
+        )
 
     except asyncio.CancelledError:
         logger.info("Agent 스트리밍 요청 취소")
@@ -194,7 +220,7 @@ async def stream_agent(
             "Agent 스트리밍 실패 run_id=%s",
             metrics.run_id,
         )
-        
+
         yield "error", {
             **metrics.snapshot(),
             "code": "AGENT_EXECUTION_FAILED",

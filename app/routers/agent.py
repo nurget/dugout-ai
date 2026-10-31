@@ -1,16 +1,21 @@
+import asyncio
+import logging
 from typing import Annotated
 from uuid import UUID
 
-from fastapi.responses import JSONResponse
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.context import AgentContext
 from app.agent.service import AgentExecutionError, run_agent
-from app.core.config import settings
-from app.db.session import get_db
-from app.schemas.chat import ChatRequest, ChatResponse
+from app.agent.streaming import stream_agent
 from app.core.auth import CurrentUser
+from app.core.config import settings
+from app.db.session import AsyncSessionLocal, get_db
+from app.schemas.chat import ChatRequest, ChatResponse
+from app.utils.sse import format_sse
 
 from app.repositories.conversation import (
     create_conversation,
@@ -34,15 +39,8 @@ from app.repositories.conversation_owner import (
     require_conversation_access,
 )
 
-import asyncio
-import logging
 
-from fastapi import Request
-from fastapi.responses import StreamingResponse
-
-from app.agent.streaming import stream_agent
-from app.db.session import AsyncSessionLocal
-from app.utils.sse import format_sse
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/agent",
@@ -64,6 +62,8 @@ async def chat(
             detail="AI 서비스가 설정되지 않았습니다.",
         )
 
+    # 이 경로는 기존 비스트리밍 분석용으로 유지한다.
+    # 현재 run_agent는 공개 Tool만 사용하도록 제한해야 한다.
     try:
         async with AsyncOpenAI(
             api_key=settings.openai_api_key,
@@ -85,9 +85,6 @@ async def chat(
         ) from error
 
 
-logger = logging.getLogger(__name__)
-
-
 @router.post("/chat/stream")
 async def chat_stream(
     payload: ChatRequest,
@@ -100,16 +97,22 @@ async def chat_stream(
             detail="AI 서비스가 설정되지 않았습니다.",
         )
 
+    context = AgentContext(
+        user_id=str(current_user.id),
+        team_code=current_user.team_code,
+        role=current_user.role,
+    )
+
+    # 권한 검사는 SSE 응답이 시작되기 전에 수행한다.
     if payload.conversation_id is not None:
         async with AsyncSessionLocal() as db:
             conversation_id = str(payload.conversation_id)
 
-            # SSE 응답을 시작하기 전에 권한부터 확인한다.
             await require_conversation_access(
                 session=db,
                 conversation_id=conversation_id,
-                user_id=current_user.id,
-                team_code=current_user.team_code,
+                user_id=context.user_id,
+                team_code=context.team_code,
             )
 
             existing = await get_conversation(
@@ -124,8 +127,7 @@ async def chat_stream(
                 )
 
     async def generate():
-        # Agent의 Tool 실행 세션과 감사 이력 저장 세션을 분리한다.
-        # Tool 쿼리가 실패하거나 rollback되어도 실행 기록은 유지되어야 한다.
+        # Tool 실행 세션과 감사 기록 세션을 분리한다.
         async with AsyncSessionLocal() as session:
             async with AsyncSessionLocal() as audit_db:
                 async with AsyncOpenAI(
@@ -141,18 +143,21 @@ async def chat_stream(
 
                     try:
                         if payload.conversation_id is None:
-                            conversation = await create_conversation(session)
+                            conversation = (
+                                await create_conversation(session)
+                            )
 
                             await assign_conversation_owner(
                                 session=session,
                                 conversation_id=conversation.id,
-                                user_id=current_user.id,
-                                team_code=current_user.team_code,
+                                user_id=context.user_id,
+                                team_code=context.team_code,
                             )
 
-                            # 대화와 소유권을 같은 트랜잭션으로 저장한다.
+                            # 대화와 소유권을 함께 저장한다.
                             await session.commit()
                             history = []
+
                         else:
                             conversation = await get_conversation(
                                 session,
@@ -162,7 +167,11 @@ async def chat_stream(
                             if conversation is None:
                                 yield format_sse(
                                     "error",
-                                    {"message": "대화를 찾을 수 없습니다."},
+                                    {
+                                        "message": (
+                                            "대화를 찾을 수 없습니다."
+                                        )
+                                    },
                                 )
                                 return
 
@@ -171,14 +180,20 @@ async def chat_stream(
                                 conversation.id,
                                 limit=20,
                             )
+
                             history = [
-                                {"role": item.role, "content": item.content}
+                                {
+                                    "role": item.role,
+                                    "content": item.content,
+                                }
                                 for item in previous
                             ]
 
                         yield format_sse(
                             "conversation",
-                            {"conversation_id": conversation.id},
+                            {
+                                "conversation_id": conversation.id,
+                            },
                         )
 
                         async for event_name, data in stream_agent(
@@ -186,12 +201,14 @@ async def chat_stream(
                             session=session,
                             client=client,
                             history=history,
+                            context=context,
                         ):
                             if await request.is_disconnected():
                                 break
 
                             if event_name == "started":
                                 run_id = data["run_id"]
+
                                 await create_agent_run(
                                     db=audit_db,
                                     run_id=run_id,
@@ -201,6 +218,7 @@ async def chat_stream(
                             elif event_name == "tool_start":
                                 tool_sequence += 1
                                 current_tool_sequence = tool_sequence
+
                                 await start_tool_execution(
                                     db=audit_db,
                                     run_id=run_id,
@@ -213,28 +231,41 @@ async def chat_stream(
                                     db=audit_db,
                                     run_id=run_id,
                                     sequence=current_tool_sequence,
-                                    duration_ms=data.get("duration_ms"),
+                                    duration_ms=data.get(
+                                        "duration_ms"
+                                    ),
                                     success=data["ok"],
-                                    error_code=((data.get("error") or {}).get("code")),
+                                    error_code=(
+                                        (data.get("error") or {}).get(
+                                            "code"
+                                        )
+                                    ),
                                 )
+
                                 current_tool_sequence = None
 
                             elif event_name == "answer_delta":
-                                answer_parts.append(data["delta"])
+                                answer_parts.append(
+                                    data["delta"]
+                                )
 
                             elif event_name == "completed":
                                 await save_exchange(
                                     session=session,
                                     conversation=conversation,
                                     user_message=payload.message,
-                                    assistant_message="".join(answer_parts),
+                                    assistant_message="".join(
+                                        answer_parts
+                                    ),
                                 )
+
                                 await finish_agent_run(
                                     db=audit_db,
                                     run_id=run_id,
                                     status="COMPLETED",
                                     metrics=data,
                                 )
+
                                 run_finished = True
 
                             elif event_name == "error":
@@ -249,11 +280,18 @@ async def chat_stream(
                                             "AGENT_EXECUTION_FAILED",
                                         ),
                                     )
+
                                     run_finished = True
 
-                            yield format_sse(event_name, data)
+                            yield format_sse(
+                                event_name,
+                                data,
+                            )
 
-                            if event_name in ("completed", "error"):
+                            if event_name in (
+                                "completed",
+                                "error",
+                            ):
                                 return
 
                     except asyncio.CancelledError:
@@ -262,7 +300,10 @@ async def chat_stream(
                         raise
 
                     except Exception:
-                        logger.exception("Agent 실행 또는 이력 저장 실패")
+                        logger.exception(
+                            "Agent 실행 또는 이력 저장 실패"
+                        )
+
                         await session.rollback()
                         await audit_db.rollback()
 
@@ -274,31 +315,41 @@ async def chat_stream(
                                     status="FAILED",
                                     error_code="STREAM_FAILED",
                                 )
+
                                 run_finished = True
+
                             except Exception:
-                                logger.exception("Agent 실패 이력 저장 실패")
+                                logger.exception(
+                                    "Agent 실패 이력 저장 실패"
+                                )
 
                         yield format_sse(
                             "error",
                             {
                                 "code": "STREAM_FAILED",
-                                "message": "대화 처리 중 문제가 발생했습니다.",
+                                "message": (
+                                    "대화 처리 중 문제가 발생했습니다."
+                                ),
                             },
                         )
 
                     finally:
                         if run_id and not run_finished:
-                            # 연결 종료와 요청 취소는 정상 완료로 기록하지 않는다.
+                            # 연결 중단은 정상 완료로 기록하지 않는다.
                             try:
                                 await audit_db.rollback()
+
                                 await finish_agent_run(
                                     db=audit_db,
                                     run_id=run_id,
                                     status="CANCELLED",
                                     error_code="STREAM_INTERRUPTED",
                                 )
+
                             except Exception:
-                                logger.exception("Agent 취소 이력 저장 실패")
+                                logger.exception(
+                                    "Agent 취소 이력 저장 실패"
+                                )
 
     return StreamingResponse(
         generate(),
@@ -319,7 +370,7 @@ async def get_conversation_messages(
     await require_conversation_access(
         session=session,
         conversation_id=str(conversation_id),
-        user_id=current_user.id,
+        user_id=str(current_user.id),
         team_code=current_user.team_code,
     )
 
@@ -369,11 +420,11 @@ async def get_agent_run_detail(
             status_code=404,
             detail="Agent 실행 기록을 찾을 수 없습니다.",
         )
-    
+
     await require_conversation_access(
         session=session,
         conversation_id=run.conversation_id,
-        user_id=current_user.id,
+        user_id=str(current_user.id),
         team_code=current_user.team_code,
     )
 
@@ -392,7 +443,11 @@ async def get_agent_run_detail(
         "output_tokens": run.output_tokens,
         "error_code": run.error_code,
         "started_at": run.started_at.isoformat(),
-        "finished_at": (run.finished_at.isoformat() if run.finished_at else None),
+        "finished_at": (
+            run.finished_at.isoformat()
+            if run.finished_at
+            else None
+        ),
         "tools": [
             {
                 "sequence": item.sequence,
