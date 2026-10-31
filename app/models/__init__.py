@@ -5,6 +5,7 @@ from app.models.agent_run import AgentRun, AgentToolExecution
 from app.models.kbo import KboTeam, KboGame
 from app.models.kbo_season_pitcher import KboSeasonPitcher
 from app.models.user import User
+from app.models.conversation_owner import ConversationOwner
 
 __all__ = [
     "Player",
@@ -18,4 +19,5 @@ __all__ = [
     "KboGame",
     "KboSeasonPitcher",
     "User",
+    "ConversationOwner"
 ]
