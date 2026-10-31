@@ -12,6 +12,8 @@ class Settings(BaseSettings):
         env_file=".env",
         extra="ignore",
     )
+    
+    jwt_secret_key: str
 
 
 settings = Settings()

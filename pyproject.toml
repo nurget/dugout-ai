@@ -6,8 +6,11 @@ dependencies = [
     "asyncpg>=0.32.0",
     "fastapi[standard]>=0.162.0",
     "openai>=3.41.0",
+    "pwdlib[argon2]>=0.3.1",
+    "pyarrow>=26.0.0",
     "pydantic>=2",
     "pydantic-settings>=2.16.2",
+    "pyjwt>=2.15.1",
     "sqlalchemy[asyncio]>=2.0,<2.1",
 ]
 
@@ -22,3 +25,7 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "e2e: 실제 FastAPI 서버와 외부 API를 사용하는 통합 테스트"
+]
+asyncio_default_fixture_loop_scope = "function"
