@@ -1,4 +1,14 @@
+from dataclasses import dataclass
 from typing import Any
+
+
+@dataclass(frozen=True)
+class AgentContext:
+    """Agent 실행 시 인증된 사용자 범위를 전달하는 불변 문맥."""
+
+    user_id: str
+    team_code: str
+    role: str
 
 
 def build_conversation_input(
