@@ -10,6 +10,7 @@ from app.agent.service import AgentExecutionError, run_agent
 from app.core.config import settings
 from app.db.session import get_db
 from app.schemas.chat import ChatRequest, ChatResponse
+from app.core.auth import CurrentUser
 
 from app.repositories.conversation import (
     create_conversation,
@@ -26,6 +27,11 @@ from app.repositories.agent_run import (
     finish_agent_run,
     get_agent_run,
     get_agent_run_tools,
+)
+
+from app.repositories.conversation_owner import (
+    assign_conversation_owner,
+    require_conversation_access,
 )
 
 import asyncio
@@ -50,6 +56,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_db)]
 async def chat(
     request: ChatRequest,
     session: SessionDep,
+    current_user: CurrentUser,
 ):
     if not settings.openai_api_key:
         raise HTTPException(
@@ -77,6 +84,7 @@ async def chat(
             detail=str(error),
         ) from error
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -84,6 +92,7 @@ logger = logging.getLogger(__name__)
 async def chat_stream(
     payload: ChatRequest,
     request: Request,
+    current_user: CurrentUser,
 ):
     if not settings.openai_api_key:
         raise HTTPException(
@@ -93,9 +102,19 @@ async def chat_stream(
 
     if payload.conversation_id is not None:
         async with AsyncSessionLocal() as db:
+            conversation_id = str(payload.conversation_id)
+
+            # SSE 응답을 시작하기 전에 권한부터 확인한다.
+            await require_conversation_access(
+                session=db,
+                conversation_id=conversation_id,
+                user_id=current_user.id,
+                team_code=current_user.team_code,
+            )
+
             existing = await get_conversation(
                 db,
-                str(payload.conversation_id),
+                conversation_id,
             )
 
             if existing is None:
@@ -123,8 +142,15 @@ async def chat_stream(
                     try:
                         if payload.conversation_id is None:
                             conversation = await create_conversation(session)
-                            # 실행 이력이 대화 ID를 참조하므로 부모 대화를
-                            # 먼저 확정한다. 실패 시 빈 대화는 남을 수 있다.
+
+                            await assign_conversation_owner(
+                                session=session,
+                                conversation_id=conversation.id,
+                                user_id=current_user.id,
+                                team_code=current_user.team_code,
+                            )
+
+                            # 대화와 소유권을 같은 트랜잭션으로 저장한다.
                             await session.commit()
                             history = []
                         else:
@@ -189,9 +215,7 @@ async def chat_stream(
                                     sequence=current_tool_sequence,
                                     duration_ms=data.get("duration_ms"),
                                     success=data["ok"],
-                                    error_code=(
-                                        (data.get("error") or {}).get("code")
-                                    ),
+                                    error_code=((data.get("error") or {}).get("code")),
                                 )
                                 current_tool_sequence = None
 
@@ -285,11 +309,20 @@ async def chat_stream(
         },
     )
 
+
 @router.get("/conversations/{conversation_id}/messages")
 async def get_conversation_messages(
     conversation_id: UUID,
     session: SessionDep,
+    current_user: CurrentUser,
 ):
+    await require_conversation_access(
+        session=session,
+        conversation_id=str(conversation_id),
+        user_id=current_user.id,
+        team_code=current_user.team_code,
+    )
+
     conversation = await get_conversation(
         session,
         str(conversation_id),
@@ -319,10 +352,12 @@ async def get_conversation_messages(
         ],
     }
 
+
 @router.get("/runs/{run_id}")
 async def get_agent_run_detail(
     run_id: UUID,
     session: SessionDep,
+    current_user: CurrentUser,
 ):
     run = await get_agent_run(
         session,
@@ -334,6 +369,13 @@ async def get_agent_run_detail(
             status_code=404,
             detail="Agent 실행 기록을 찾을 수 없습니다.",
         )
+    
+    await require_conversation_access(
+        session=session,
+        conversation_id=run.conversation_id,
+        user_id=current_user.id,
+        team_code=current_user.team_code,
+    )
 
     tools = await get_agent_run_tools(
         session,
@@ -350,10 +392,7 @@ async def get_agent_run_detail(
         "output_tokens": run.output_tokens,
         "error_code": run.error_code,
         "started_at": run.started_at.isoformat(),
-        "finished_at": (
-            run.finished_at.isoformat()
-            if run.finished_at else None
-        ),
+        "finished_at": (run.finished_at.isoformat() if run.finished_at else None),
         "tools": [
             {
                 "sequence": item.sequence,
