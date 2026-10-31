@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent_run import (
@@ -114,3 +114,71 @@ async def get_agent_run_tools(
     )
 
     return list(result.scalars().all())
+
+def stale_run_cutoff(
+    minutes: int,
+    now: datetime | None = None,
+) -> datetime:
+    if minutes < 1:
+        raise ValueError("복구 기준은 1분 이상이어야 합니다.")
+
+    current_time = now or datetime.now(timezone.utc)
+    return current_time - timedelta(minutes=minutes)
+
+
+async def count_stale_runs(
+    db: AsyncSession,
+    cutoff: datetime,
+) -> int:
+    result = await db.scalar(
+        select(func.count())
+        .select_from(AgentRun)
+        .where(
+            AgentRun.status == "RUNNING",
+            AgentRun.started_at < cutoff,
+        )
+    )
+
+    return result or 0
+
+
+async def reconcile_stale_runs(
+    db: AsyncSession,
+    cutoff: datetime,
+) -> list[str]:
+    now = datetime.now(timezone.utc)
+
+    # 실행 중인 요청을 잘못 종료하지 않도록 상태와 시작 시각을 UPDATE 조건에서 다시 확인한다.
+    result = await db.execute(
+        update(AgentRun)
+        .where(
+            AgentRun.status == "RUNNING",
+            AgentRun.started_at < cutoff,
+        )
+        .values(
+            status="INTERRUPTED",
+            finished_at=now,
+            error_code="RUN_STALE",
+            error_message=(
+                "복구 기준 시간을 초과한 미완료 실행입니다. "
+                "실제 종료 원인은 서버 로그 확인이 필요합니다."
+            ),
+        )
+        .returning(AgentRun.run_id)
+    )
+
+    recovered_ids = list(result.scalars().all())
+
+    if recovered_ids:
+        # 실행 결과를 받지 못한 Tool에는 성공이나 실패를 임의로 기록하지 않는다.
+        await db.execute(
+            update(AgentToolExecution)
+            .where(
+                AgentToolExecution.run_id.in_(recovered_ids),
+                AgentToolExecution.success.is_(None),
+            )
+            .values(error_code="RUN_INTERRUPTED")
+        )
+
+    await db.commit()
+    return recovered_ids
