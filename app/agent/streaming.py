@@ -24,7 +24,7 @@ async def stream_agent(
     client: AsyncOpenAI,
     history: list[dict[str, str]] | None = None,
 ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
-    """Run the tool-calling loop and yield client-safe stream events."""
+    # 과거 대화는 DB에서 읽은 메시지만 사용한다.
     conversation: list[Any] = build_conversation_input(
         message=message,
         history=history,
@@ -190,8 +190,13 @@ async def stream_agent(
         raise
 
     except (OpenAIError, RuntimeError):
-        logger.exception("Agent 스트리밍 실패")
+        logger.exception(
+            "Agent 스트리밍 실패 run_id=%s",
+            metrics.run_id,
+        )
+        
         yield "error", {
+            **metrics.snapshot(),
             "code": "AGENT_EXECUTION_FAILED",
             "message": "분석 중 문제가 발생했습니다.",
             "partial_answer": answer_started,

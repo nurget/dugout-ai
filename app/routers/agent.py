@@ -213,16 +213,19 @@ async def chat_stream(
                                 )
                                 run_finished = True
 
-                            elif event_name == "error" and run_id:
-                                await finish_agent_run(
-                                    db=audit_db,
-                                    run_id=run_id,
-                                    status="FAILED",
-                                    error_code=data.get(
-                                        "code", "AGENT_EXECUTION_FAILED"
-                                    ),
-                                )
-                                run_finished = True
+                            elif event_name == "error":
+                                if run_id:
+                                    await finish_agent_run(
+                                        db=audit_db,
+                                        run_id=run_id,
+                                        status="FAILED",
+                                        metrics=data,
+                                        error_code=data.get(
+                                            "code",
+                                            "AGENT_EXECUTION_FAILED",
+                                        ),
+                                    )
+                                    run_finished = True
 
                             yield format_sse(event_name, data)
 
