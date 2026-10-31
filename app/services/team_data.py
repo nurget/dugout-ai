@@ -4,6 +4,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.kbo import KboGame
 from app.models.kbo_season_pitcher import KboSeasonPitcher
 
+PITCHER_TEAM_CODE_MAP = {
+    # 계정/경기 데이터의 표준 코드와 PBP 원본 코드가 일부 다르다.
+    "KIA": "HT",
+    "LOT": "LT",
+    "SAM": "SS",
+    "HAN": "HH",
+    "KIW": "WO",
+    "DOO": "OB",
+}
 
 async def get_team_games(
     session: AsyncSession,
@@ -36,7 +45,10 @@ async def get_team_pitchers(
         select(KboSeasonPitcher)
         .where(
             KboSeasonPitcher.season == season,
-            KboSeasonPitcher.team_code == team_code,
+            KboSeasonPitcher.team_code == PITCHER_TEAM_CODE_MAP.get(
+                team_code,
+                team_code,
+            ),
         )
     )
 
