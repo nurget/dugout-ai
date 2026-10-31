@@ -1,7 +1,7 @@
 export type User = { id: number; username: string; team_code: string; role: "MANAGER" | "COACH" | string };
 export type TeamSummary = { username: string; team_code: string; role: string; season: number };
 export type Game = { game_pk: string; game_date: string; home_team_code: string; away_team_code: string; home_score: number | null; away_score: number | null; status: string };
-export type Pitcher = { id: number; pitcher_name: string; games: number; batters_faced: number; strikeouts: number; walks: number; k_pct: number; bb_pct: number; k_minus_bb_pct: number };
+export type Pitcher = { id: number | string; pitcher_name: string; games: number; batters_faced: number | null; strikeouts: number; walks: number; k_pct: number | null; bb_pct: number | null; k_minus_bb_pct: number | null; stat_source?: string };
 export type SavedMessage = { id: string; role: "user" | "assistant"; content: string; created_at: string };
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -37,8 +37,8 @@ export const api = {
   login: (username: string, password: string) => request<{ access_token: string; token_type: string; expires_in: number }>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }, null),
   me: () => request<User>("/api/auth/me"),
   team: () => request<TeamSummary>("/api/teams/me"),
-  games: () => request<{ data: Game[] }>("/api/teams/me/games?season=2026"),
-  pitchers: () => request<{ data: Pitcher[]; note: string }>("/api/teams/me/pitchers?season=2026"),
+  games: (seasonType = "REGULAR") => request<{ data: Game[] }>(`/api/teams/me/games?season=2026&season_type=${seasonType === "REGULAR" ? "REGULAR" : "POSTSEASON"}`),
+  pitchers: (seasonType = "REGULAR") => request<{ data: Pitcher[]; note: string }>(`/api/teams/me/pitchers?season=2026&season_type=${seasonType === "REGULAR" ? "REGULAR" : "POSTSEASON"}`),
   messages: (id: string) => request<{ messages: SavedMessage[] }>(`/api/agent/conversations/${id}/messages`),
 };
 

@@ -1,0 +1,3 @@
+.phase-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+.phase-tabs button { padding: 7px 10px; color: var(--sub); border: 1px solid var(--line); border-radius: 7px; background: #fff; font-size: 12px; font-weight: 700; }
+.phase-tabs button.active { color: var(--blue); border-color: var(--blue); background: var(--weak); }

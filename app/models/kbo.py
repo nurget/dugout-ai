@@ -18,6 +18,8 @@ class KboGame(Base):
 
     game_pk: Mapped[str] = mapped_column(String(32), primary_key=True)
     season: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    season_type: Mapped[str] = mapped_column(String(20), nullable=False, default="REGULAR", index=True)
+    season_phase: Mapped[str] = mapped_column(String(20), nullable=False, default="REGULAR", index=True)
     game_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     home_team_code: Mapped[str] = mapped_column(ForeignKey("kbo_teams.code"), nullable=False, index=True)
     away_team_code: Mapped[str] = mapped_column(ForeignKey("kbo_teams.code"), nullable=False, index=True)

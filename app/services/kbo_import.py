@@ -15,6 +15,8 @@ class InvalidKboDataset(ValueError):
 class NormalizedGame:
     game_pk: str
     season: int
+    season_type: str
+    season_phase: str
     game_date: date
     home_code: str
     home_name: str
@@ -53,7 +55,10 @@ def normalize_game(raw: dict[str, Any], season: int) -> NormalizedGame:
         for score in (home_score, away_score):
             if score is not None and (type(score) is not int or score < 0):
                 raise ValueError("점수가 유효하지 않습니다.")
-        return NormalizedGame(game_pk, season, game_date, home_code, home_name,
+        season_type = "POSTSEASON" if raw.get("isPostseason") else "REGULAR"
+        phases = {3: "WILDCARD", 4: "SEMIPLAYOFF", 5: "PLAYOFF", 6: "KOREAN_SERIES"}
+        season_phase = phases.get(raw.get("series_id"), "REGULAR")
+        return NormalizedGame(game_pk, season, season_type, season_phase, game_date, home_code, home_name,
                               away_code, away_name, home_score, away_score, status)
     except (KeyError, TypeError, ValueError) as exc:
         raise InvalidKboDataset(f"경기 데이터 형식 오류: {exc}") from exc
@@ -128,6 +133,8 @@ async def import_games(session: AsyncSession, games: list[NormalizedGame], sourc
             existing = KboGame(game_pk=game.game_pk)
             session.add(existing)
         existing.season = game.season
+        existing.season_type = game.season_type
+        existing.season_phase = game.season_phase
         existing.game_date = game.game_date
         existing.home_team_code = game.home_code
         existing.away_team_code = game.away_code

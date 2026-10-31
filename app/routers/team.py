@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.services.team_data import (
     get_team_games,
     get_team_pitchers,
+    get_team_official_pitchers,
 )
 
 
@@ -51,16 +52,19 @@ async def get_my_team_games(
     current_user: CurrentUser,
     session: SessionDep,
     season: int = Query(default=2026, ge=1982, le=2100),
+    season_type: str = Query(default="REGULAR", pattern="^(REGULAR|POSTSEASON)$"),
 ):
     games = await get_team_games(
         session=session,
         team_code=current_user.team_code,
         season=season,
+        season_type=season_type,
     )
 
     return {
         "team_code": current_user.team_code,
         "season": season,
+        "season_type": season_type,
         "count": len(games),
         "data": [
             serialize_model(game)
@@ -74,13 +78,18 @@ async def get_my_team_pitchers(
     current_user: CurrentUser,
     session: SessionDep,
     season: int = Query(default=2026, ge=1982, le=2100),
+    season_type: str = Query(default="REGULAR", pattern="^(REGULAR|POSTSEASON|WILDCARD|SEMIPLAYOFF|PLAYOFF|KOREAN_SERIES)$"),
 ):
-    pitchers = await get_team_pitchers(
+    official = await get_team_official_pitchers(
         session=session,
         team_code=current_user.team_code,
         season=season,
+        season_type=season_type,
     )
 
+    if official:
+        return {"team_code": current_user.team_code, "season": season, "season_type": season_type, "count": len(official), "data": [{"id": f"official-{p.id}", "pitcher_name": p.pitcher_name, "games": p.games, "batters_faced": p.batters_faced, "strikeouts": p.strikeouts, "walks": p.walks, "k_pct": p.k_pct, "bb_pct": p.bb_pct, "k_minus_bb_pct": p.k_minus_bb_pct, "stat_source": "KBO_OFFICIAL"} for p in official], "note": ""}
+    pitchers = await get_team_pitchers(session=session, team_code=current_user.team_code, season=season)
     return {
         "team_code": current_user.team_code,
         "season": season,
