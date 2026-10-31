@@ -1,168 +1,32 @@
-import { useEffect, useState } from "react";
+/* eslint-disable react-hooks/set-state-in-effect, react-hooks/static-components, react-hooks/exhaustive-deps */
+import { useEffect, useMemo, useState } from "react";
+import { api, ApiError, type Game, type Pitcher, type SavedMessage, type TeamSummary, type User } from "./api/client";
+import { useAuth } from "./hooks/useAuth";
 import { useAgentStream } from "./hooks/useAgentStream";
 import "./App.css";
 
-const EXAMPLE_QUESTION =
-  "7회말 1사 1루, 선발 투수가 95구입니다. 지금 교체하는 편이 나을까요?";
+type Tab = "overview" | "pitchers" | "agent";
+const labels: Record<string, string> = { idle: "준비됨", connecting: "연결 중", analyzing: "질문 처리 중", generating: "답변 생성 중", completed: "분석 완료", cancelled: "중단됨", failed: "실패" };
+const pct = (value: number) => `${value.toFixed(1)}%`;
 
-type SavedMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  created_at: string;
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  idle: "준비됨",
-  connecting: "연결 중",
-  analyzing: "데이터 확인 중",
-  generating: "분석 중",
-  completed: "완료",
-  cancelled: "중단됨",
-  failed: "실패",
-};
-
-function App() {
-  const [message, setMessage] = useState(EXAMPLE_QUESTION);
-  const [savedMessages, setSavedMessages] = useState<SavedMessage[]>([]);
-  const [historyError, setHistoryError] = useState<string | null>(null);
-  const {
-    conversationId, answer, tools, status, error, historyVersion,
-    sendMessage, cancel, startNewConversation,
-  } = useAgentStream();
-
-  useEffect(() => {
-    if (!conversationId) return;
-    const controller = new AbortController();
-
-    async function loadMessages() {
-      try {
-        const response = await fetch(
-          `/api/agent/conversations/${conversationId}/messages`,
-          { signal: controller.signal }
-        );
-        if (response.status === 404) {
-          setSavedMessages([]);
-          setHistoryError(null);
-          return;
-        }
-
-        if (!response.ok) throw new Error(`대화 조회 실패: ${response.status}`);
-        const data: { messages: SavedMessage[] } = await response.json();
-        setSavedMessages(data.messages);
-        setHistoryError(null);
-      } catch (loadError) {
-        if (!controller.signal.aborted) {
-          setHistoryError(loadError instanceof Error ? loadError.message : "대화 조회 오류");
-          console.error("대화 복원 실패", loadError);
-        }
-      }
-    }
-
-    void loadMessages();
-    return () => controller.abort();
-  }, [conversationId, historyVersion]);
-
-  const loading = ["connecting", "analyzing", "generating"].includes(status);
-  const displayedMessages = conversationId ? savedMessages : [];
-
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!message.trim() || loading) return;
-
-    const submittedMessage = message.trim();
-    setMessage("");
-    void sendMessage(submittedMessage);
-  }
-
-  function handleQuestionKeyDown(
-    event: React.KeyboardEvent<HTMLTextAreaElement>
-  ) {
-    if (event.key !== "Enter" || event.shiftKey) return;
-
-    event.preventDefault();
-    event.currentTarget.form?.requestSubmit();
-  }
-
-  function handleNewConversation() {
-    if (loading) return;
-    startNewConversation();
-    setSavedMessages([]);
-    setHistoryError(null);
-    setMessage("");
-  }
-
-  return (
-    <main className="dashboard">
-      <header className="app-header">
-        <div className="wordmark">DUGOUT</div>
-        <div className="header-actions">
-          <span className={`run-status ${loading ? "active" : ""}`}>
-            <i />{STATUS_LABEL[status] ?? status}
-          </span>
-          <button type="button" className="text-button" onClick={handleNewConversation} disabled={loading}>
-            새 분석
-          </button>
-        </div>
-      </header>
-
-      <section className="game-overview" aria-label="현재 경기 상황">
-        <div className="game-title">
-          <span className="section-kicker">GAME SITUATION</span>
-          <strong>KIA <b>3</b><em>:</em><b>3</b> 삼성</strong>
-        </div>
-        <div className="overview-metric"><span>이닝</span><strong>7회말</strong></div>
-        <div className="overview-metric"><span>아웃 / 주자</span><strong>1사 · 1루</strong></div>
-        <div className="overview-metric"><span>현재 투수</span><strong>선발 · 95구</strong></div>
-        <div className="overview-metric"><span>다음 타자</span><strong>좌타자</strong></div>
-      </section>
-
-      <section className="main-panel" aria-label="투수 교체 분석">
-        <div className="panel-heading">
-          <div><span className="section-kicker">ANALYSIS</span><h1>투수 교체 분석</h1></div>
-          {conversationId && <span className="record-id">ID {conversationId.slice(0, 8)}</span>}
-        </div>
-
-        <div className="analysis-content" aria-live="polite">
-          {displayedMessages.map((item) => (
-            <article className={`message ${item.role}`} key={item.id}>
-              <span>{item.role === "user" ? "질문" : "분석 결과"}</span>
-              <p>{item.content}</p>
-            </article>
-          ))}
-          {answer && <article className="message assistant current"><span>분석 결과</span><p>{answer}</p></article>}
-          {!answer && displayedMessages.length === 0 && !loading && (
-            <div className="empty-state"><p>경기 상황에 대해 질문을 입력하세요.</p></div>
-          )}
-          {loading && !answer && <div className="loading-line"><i /><span>경기 데이터를 확인하고 있습니다</span></div>}
-        </div>
-
-        {tools.length > 0 && (
-          <div className="tool-trace">
-            <span>확인한 데이터</span>
-            {tools.map((tool, index) => (
-              <span className="tool-item" key={`${tool.tool}-${index}`}>
-                <i className={tool.ok === false ? "fail" : tool.ok ? "done" : ""} />
-                {tool.tool.replaceAll("_", " ")}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {historyError && <p className="error">저장된 대화를 불러오지 못했습니다: {historyError}</p>}
-        {error && <p className="error">{error}</p>}
-
-        <form className="composer" onSubmit={handleSubmit}>
-          <label htmlFor="question">분석할 상황</label>
-          <textarea id="question" value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={handleQuestionKeyDown} rows={2} maxLength={1000} placeholder="질문을 입력하세요" />
-          <div className="composer-actions">
-            <span>분석 결과는 의사결정 참고용입니다.</span>
-            {loading ? <button type="button" className="cancel" onClick={cancel}>중단</button> : <button type="submit" disabled={!message.trim()}>분석하기</button>}
-          </div>
-        </form>
-      </section>
-    </main>
-  );
+function Login({ login }: { login: (id: string, password: string) => Promise<void> }) {
+  const [username, setUsername] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(false);
+  async function submit(e: React.FormEvent) { e.preventDefault(); setLoading(true); setError(null); try { await login(username, password); } catch (err) { setError(err instanceof Error ? err.message : "로그인에 실패했습니다."); } finally { setLoading(false); } }
+  return <main className="login-page"><section className="login-card"><div className="brand-mark">D</div><p className="eyebrow">BASEBALL DECISION INTELLIGENCE</p><h1>DUGOUT AI</h1><p className="muted">구단의 판단을 더 빠르고 정확하게</p><form onSubmit={submit}><label>아이디<input value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" required /></label><label>비밀번호<input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" required /></label>{error && <p className="error">{error}</p>}<button className="primary" disabled={loading}>{loading ? "로그인 중…" : "로그인"}</button></form></section></main>;
 }
 
-export default App;
+function Dashboard({ user, logout }: { user: User; logout: () => void }) {
+  const [tab, setTab] = useState<Tab>("overview"); const [team, setTeam] = useState<TeamSummary | null>(null); const [games, setGames] = useState<Game[]>([]); const [pitchers, setPitchers] = useState<Pitcher[]>([]); const [note, setNote] = useState(""); const [dataError, setDataError] = useState<string | null>(null); const [loading, setLoading] = useState(true);
+  const handleLogout = () => { sessionStorage.removeItem(`dugout_conversation_id:${user.id}`); logout(); };
+  useEffect(() => { let active = true; Promise.all([api.team(), api.games(), api.pitchers()]).then(([t, g, p]) => { if (!active) return; setTeam(t); setGames(g.data); setPitchers(p.data); setNote(p.note); }).catch((err) => { if (!active) return; if (err instanceof ApiError && err.status === 401) logout(); else setDataError(err instanceof Error ? err.message : "데이터를 불러오지 못했습니다."); }).finally(() => active && setLoading(false)); return () => { active = false; }; }, [logout]);
+  return <main className="app-shell"><header className="topbar"><div><span className="wordmark">DUGOUT AI</span><span className="product">분석 콘솔</span></div><div className="account"><span>{user.username} · {user.role}</span><button onClick={handleLogout}>로그아웃</button></div></header><aside className="sidebar"><div className="team-chip"><span>소속 구단</span><strong>{team?.team_code ?? user.team_code}</strong><small>2026 시즌</small></div>{([['overview','대시board'],['pitchers','투수 분석'],['agent','AI 전술 분석']] as [Tab,string][]).map(([id, name]) => <button key={id} className={tab === id ? "nav active" : "nav"} onClick={() => setTab(id)}>{name}</button>)}</aside><section className="content">{loading ? <div className="page-state">구단 데이터를 불러오는 중입니다…</div> : dataError ? <div className="error">{dataError}</div> : <>{tab === "overview" && <Overview team={team} games={games} pitchers={pitchers} />}{tab === "pitchers" && <Pitchers pitchers={pitchers} note={note} />}{tab === "agent" && <Agent accountId={user.id} logout={handleLogout} />}</>}</section></main>;
+}
+
+function Overview({ team, games, pitchers }: { team: TeamSummary | null; games: Game[]; pitchers: Pitcher[] }) { return <><div className="page-head"><p className="eyebrow">2026 SEASON</p><h2>{team?.team_code} 운영 대시보드</h2><p className="muted">인증된 계정의 소속 구단 데이터입니다.</p></div><div className="metrics"><div><span>소속 구단</span><strong>{team?.team_code}</strong></div><div><span>경기 수</span><strong>{games.length}</strong></div><div><span>투수 수</span><strong>{pitchers.length}</strong></div><div><span>권한</span><strong>{team?.role}</strong></div></div><section className="panel"><div className="panel-title"><h3>경기 목록</h3><span>{games.length}건</span></div>{games.length ? <div className="table-wrap"><table><thead><tr><th>일자</th><th>원정</th><th>스코어</th><th>홈</th><th>상태</th></tr></thead><tbody>{games.map(g => <tr key={g.game_pk}><td>{g.game_date}</td><td>{g.away_team_code}</td><td>{g.away_score ?? "-"} : {g.home_score ?? "-"}</td><td>{g.home_team_code}</td><td>{g.status}</td></tr>)}</tbody></table></div> : <Empty text="2026 시즌 경기 데이터가 없습니다." />}</section></> }
+function Empty({ text }: { text: string }) { return <div className="empty">{text}</div>; }
+
+function Pitchers({ pitchers, note }: { pitchers: Pitcher[]; note: string }) { const [query, setQuery] = useState(""); const [sort, setSort] = useState<keyof Pitcher>("k_minus_bb_pct"); const [desc, setDesc] = useState(true); const rows = useMemo(() => pitchers.filter(p => p.pitcher_name.includes(query)).sort((a,b) => { const x=a[sort], y=b[sort]; return typeof x === "number" && typeof y === "number" ? (desc ? y-x : x-y) : 0; }), [pitchers, query, sort, desc]); const toggle = (key: keyof Pitcher) => { if (key === sort) setDesc(!desc); else { setSort(key); setDesc(true); } }; const Head = ({ id, children }: { id: keyof Pitcher; children: string }) => <th><button className="sort" onClick={() => toggle(id)}>{children}{sort === id && (desc ? " ↓" : " ↑")}</button></th>; return <><div className="page-head"><p className="eyebrow">PITCHING</p><h2>투수 분석</h2><p className="notice">{note}</p></div><section className="panel"><div className="panel-title"><h3>시즌 투수 기록</h3><input className="search" placeholder="선수명 검색" value={query} onChange={e => setQuery(e.target.value)} /></div>{rows.length ? <div className="table-wrap"><table><thead><tr><Head id="pitcher_name">선수명</Head><Head id="games">등판</Head><Head id="batters_faced">BF</Head><Head id="strikeouts">SO</Head><Head id="walks">BB</Head><Head id="k_pct">K%</Head><Head id="bb_pct">BB%</Head><Head id="k_minus_bb_pct">K-BB%</Head></tr></thead><tbody>{rows.map(p => <tr key={p.id}><td>{p.pitcher_name}</td><td>{p.games}</td><td>{p.batters_faced}</td><td>{p.strikeouts}</td><td>{p.walks}</td><td>{pct(p.k_pct)}</td><td>{pct(p.bb_pct)}</td><td className="emphasis">{pct(p.k_minus_bb_pct)}</td></tr>)}</tbody></table></div> : <Empty text="조건에 맞는 투수 기록이 없습니다." />}</section></>; }
+
+function Agent({ accountId, logout }: { accountId: number; logout: () => void }) { const [message, setMessage] = useState(""); const [history, setHistory] = useState<SavedMessage[]>([]); const stream = useAgentStream(accountId, logout); const busy = ["connecting", "analyzing", "generating"].includes(stream.status); useEffect(() => { if (!stream.conversationId) { setHistory([]); return; } let active = true; api.messages(stream.conversationId).then(r => active && setHistory(r.messages)).catch(e => { if (e instanceof ApiError && e.status === 401) logout(); if (e instanceof ApiError && e.status === 404) stream.startNewConversation(); }).catch(() => undefined); return () => { active = false; }; }, [stream.conversationId, stream.historyVersion, logout]); const submit = (e: React.FormEvent) => { e.preventDefault(); if (!message.trim() || busy) return; void stream.sendMessage(message); setMessage(""); }; return <><div className="page-head agent-head"><div><p className="eyebrow">AI AGENT</p><h2>AI 전술 분석</h2></div><button className="secondary" disabled={busy} onClick={stream.startNewConversation}>새 대화</button></div><section className="agent-panel"><div className="agent-status"><i className={busy ? "pulse" : ""} />{labels[stream.status]} {stream.conversationId && <small>대화 ID {stream.conversationId.slice(0, 8)}</small>}</div><div className="messages">{history.map(m => <article className={`message ${m.role}`} key={m.id}><b>{m.role === "user" ? "코치" : "DUGOUT AI"}</b><p>{m.content}</p></article>)}{stream.answer && <article className="message assistant live"><b>DUGOUT AI</b><p>{stream.answer}</p></article>}{!history.length && !stream.answer && !busy && <Empty text="경기 상황이나 전술 질문을 입력하세요." />}</div>{stream.tools.length > 0 && <div className="tools"><strong>Agent 실행 과정</strong>{stream.tools.map((tool, i) => <span key={`${tool.tool}-${i}`} className={tool.ok === false ? "fail" : tool.ok ? "done" : "running"}>{tool.ok === undefined ? "실행 중" : tool.ok ? "완료" : "실패"} · {tool.tool.replaceAll("_", " ")}{tool.duration_ms !== undefined && ` · ${tool.duration_ms}ms`}</span>)}</div>}{stream.error && <p className="error">{stream.error}</p>}<form className="composer" onSubmit={submit}><textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="예: 7회말 1사 1루, 투수 교체가 필요할까요?" maxLength={1000} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} /><div><small>결과는 의사결정 참고용입니다.</small>{busy ? <button className="secondary" type="button" onClick={stream.cancel}>중단</button> : <button className="primary">분석 요청</button>}</div></form></section></>; }
+
+export default function App() { const auth = useAuth(); if (auth.checking) return <main className="page-state">인증 상태를 확인하는 중입니다…</main>; return auth.user ? <Dashboard key={auth.user.id} user={auth.user} logout={auth.logout} /> : <Login login={auth.login} />; }
