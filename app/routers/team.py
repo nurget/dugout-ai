@@ -1,15 +1,15 @@
 from datetime import date, datetime
-
-from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import Depends
 from typing import Annotated
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import CurrentUser
 from app.db.session import get_db
-from app.models.kbo_season_pitcher import KboSeasonPitcher
+from app.services.team_data import (
+    get_team_games,
+    get_team_pitchers,
+)
 
 
 router = APIRouter(
@@ -20,13 +20,11 @@ router = APIRouter(
 SessionDep = Annotated[AsyncSession, Depends(get_db)]
 
 
-def serialize_pitcher(pitcher: KboSeasonPitcher) -> dict:
-    # SQLAlchemy 모델에서 실제 DB 컬럼만 추출한다.
-    # 사용자 모델이나 비밀번호 등은 이 API에 포함되지 않는다.
+def serialize_model(model) -> dict:
     result = {}
 
-    for column in pitcher.__table__.columns:
-        value = getattr(pitcher, column.name)
+    for column in model.__table__.columns:
+        value = getattr(model, column.name)
 
         if isinstance(value, (date, datetime)):
             value = value.isoformat()
@@ -41,10 +39,33 @@ async def get_my_team(
     current_user: CurrentUser,
 ):
     return {
+        "username": current_user.username,
         "team_code": current_user.team_code,
         "role": current_user.role,
-        "username": current_user.username,
         "season": 2026,
+    }
+
+
+@router.get("/games")
+async def get_my_team_games(
+    current_user: CurrentUser,
+    session: SessionDep,
+    season: int = Query(default=2026, ge=1982, le=2100),
+):
+    games = await get_team_games(
+        session=session,
+        team_code=current_user.team_code,
+        season=season,
+    )
+
+    return {
+        "team_code": current_user.team_code,
+        "season": season,
+        "count": len(games),
+        "data": [
+            serialize_model(game)
+            for game in games
+        ],
     }
 
 
@@ -54,24 +75,23 @@ async def get_my_team_pitchers(
     session: SessionDep,
     season: int = Query(default=2026, ge=1982, le=2100),
 ):
-    # 소속 팀은 요청 파라미터가 아닌 인증된 사용자 정보에서 가져온다.
-    statement = (
-        select(KboSeasonPitcher)
-        .where(
-            KboSeasonPitcher.season == season,
-            KboSeasonPitcher.team_code == current_user.team_code,
-        )
+    pitchers = await get_team_pitchers(
+        session=session,
+        team_code=current_user.team_code,
+        season=season,
     )
-
-    result = await session.execute(statement)
-    pitchers = result.scalars().all()
 
     return {
         "team_code": current_user.team_code,
         "season": season,
         "count": len(pitchers),
         "data": [
-            serialize_pitcher(pitcher)
+            serialize_model(pitcher)
             for pitcher in pitchers
         ],
+        "note": (
+            "투수 통계는 2026년 일부 경기의 "
+            "Play-by-Play 데이터를 기반으로 집계했습니다. "
+            "공식 시즌 전체 기록과 차이가 있을 수 있습니다."
+        ),
     }
