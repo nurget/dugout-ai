@@ -23,3 +23,15 @@ class PitchingDecisionInput(BaseModel):
     outs: int = Field(ge=0, le=2)
     pitch_count: int = Field(ge=0, le=200)
     runner_on_first: bool = False
+
+class SearchSeasonPitchersInput(BaseModel):
+    season: int = Field(ge=1982, le=2100)
+    name: str = Field(min_length=1)
+    team: str | None = None
+
+
+class ComparePitchersInput(BaseModel):
+    season: int = Field(ge=1982, le=2100)
+    first_pitcher_id: str = Field(min_length=1)
+    second_pitcher_id: str = Field(min_length=1)
+    team: str | None = None

@@ -3,23 +3,31 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.tools.schemas import PitchingDecisionInput
-from app.tools.baseball import simulate_pitching_decision
 from app.sabermetrics.run_expectancy import RE24Input
-from app.tools.baseball import calculate_re24_tool
 
 from app.tools.baseball import (
     ToolNotFoundError,
     get_game_state,
     get_pitcher_status,
     get_bullpen_options,
+    simulate_pitching_decision,
+    calculate_re24_tool,
+)
+
+from app.tools.pitcher_comparison import (
+    search_season_pitchers_tool,
+    compare_pitchers_tool,
 )
 
 from app.tools.schemas import (
     GameStateInput,
     PitcherStatusInput,
     BullpenOptionsInput,
+    PitchingDecisionInput,
+    SearchSeasonPitchersInput,
+    ComparePitchersInput,
 )
+
 
 TOOL_REGISTRY = {
     "get_game_state": (
@@ -42,7 +50,16 @@ TOOL_REGISTRY = {
         RE24Input,
         calculate_re24_tool,
     ),
+    "search_season_pitchers": (
+        SearchSeasonPitchersInput,
+        search_season_pitchers_tool,
+    ),
+    "compare_pitchers": (
+        ComparePitchersInput,
+        compare_pitchers_tool,
+    ),
 }
+
 
 async def execute_tool(
     session: AsyncSession,
