@@ -41,6 +41,12 @@ function App() {
           `/api/agent/conversations/${conversationId}/messages`,
           { signal: controller.signal }
         );
+        if (response.status === 404) {
+          setSavedMessages([]);
+          setHistoryError(null);
+          return;
+        }
+
         if (!response.ok) throw new Error(`대화 조회 실패: ${response.status}`);
         const data: { messages: SavedMessage[] } = await response.json();
         setSavedMessages(data.messages);
@@ -63,7 +69,19 @@ function App() {
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!message.trim() || loading) return;
-    void sendMessage(message.trim());
+
+    const submittedMessage = message.trim();
+    setMessage("");
+    void sendMessage(submittedMessage);
+  }
+
+  function handleQuestionKeyDown(
+    event: React.KeyboardEvent<HTMLTextAreaElement>
+  ) {
+    if (event.key !== "Enter" || event.shiftKey) return;
+
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
   }
 
   function handleNewConversation() {
@@ -136,7 +154,7 @@ function App() {
 
         <form className="composer" onSubmit={handleSubmit}>
           <label htmlFor="question">분석할 상황</label>
-          <textarea id="question" value={message} onChange={(event) => setMessage(event.target.value)} rows={2} maxLength={1000} placeholder="질문을 입력하세요" />
+          <textarea id="question" value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={handleQuestionKeyDown} rows={2} maxLength={1000} placeholder="질문을 입력하세요" />
           <div className="composer-actions">
             <span>분석 결과는 의사결정 참고용입니다.</span>
             {loading ? <button type="button" className="cancel" onClick={cancel}>중단</button> : <button type="submit" disabled={!message.trim()}>분석하기</button>}
