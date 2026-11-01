@@ -21,5 +21,9 @@ export function useAuth() {
     setToken(response.access_token);
     try { setUser(await api.me()); } catch (error) { logout(); throw error; }
   }, [logout]);
-  return { user, checking, login, logout, refresh };
+  const register = useCallback(async (username: string, password: string, teamCode: string, role: string) => {
+    await api.register(username, password, teamCode, role);
+    await login(username, password);
+  }, [login]);
+  return { user, checking, login, register, logout, refresh };
 }

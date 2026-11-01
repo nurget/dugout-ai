@@ -140,6 +140,7 @@ async def chat_stream(
                     tool_sequence = 0
                     current_tool_sequence = None
                     answer_parts: list[str] = []
+                    analysis_results: list[dict] = []
 
                     try:
                         if payload.conversation_id is None:
@@ -249,6 +250,9 @@ async def chat_stream(
                                     data["delta"]
                                 )
 
+                            elif event_name == "analysis_result":
+                                analysis_results.append(data)
+
                             elif event_name == "completed":
                                 await save_exchange(
                                     session=session,
@@ -257,6 +261,7 @@ async def chat_stream(
                                     assistant_message="".join(
                                         answer_parts
                                     ),
+                                    analysis_results=analysis_results,
                                 )
 
                                 await finish_agent_run(
@@ -397,6 +402,7 @@ async def get_conversation_messages(
                 "id": message.id,
                 "role": message.role,
                 "content": message.content,
+                "analysis_results": message.analysis_results or [],
                 "created_at": message.created_at.isoformat(),
             }
             for message in messages

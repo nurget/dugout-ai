@@ -40,14 +40,17 @@ async def stream_agent(
     }
 
     try:
-        for round_number in range(1, MAX_TOOL_ROUNDS + 1):
+        for round_number in range(1, MAX_TOOL_ROUNDS + 2):
+            final_round = round_number > MAX_TOOL_ROUNDS
+
             stream = await client.responses.create(
                 model=settings.openai_model,
                 instructions=SYSTEM_PROMPT,
                 input=conversation,
                 tools=AGENT_TOOLS,
+                tool_choice="none" if final_round else "auto",
                 parallel_tool_calls=False,
-                max_output_tokens=1024,
+                max_output_tokens=2048,
                 store=False,
                 stream=True,
             )
@@ -195,6 +198,38 @@ async def stream_agent(
                     "error": result.get("error"),
                     "duration_ms": round(duration_ms, 2),
                 }
+
+                # 모델이 만든 설명문과 별개로 DB 기반 후보 비교 결과를
+                # 구조화해서 전달한다. 클라이언트는 이 값을 파싱하지 않고
+                # 그대로 비교 카드에 사용한다.
+                if (
+                    tool_call.name == "compare_bullpen_candidates"
+                    and result["ok"]
+                ):
+                    comparison = result["data"]
+                    yield "analysis_result", {
+                        "type": "bullpen_comparison",
+                        "team_code": comparison["team_code"],
+                        "as_of_date": comparison["as_of_date"],
+                        "availability_verified": False,
+                        "candidates": [
+                            {
+                                "pitcher_id": row["pitcher_id"],
+                                "pitcher_name": row["pitcher_name"],
+                                "k_minus_bb_pct": row["k_minus_bb_pct"],
+                                "batters_faced": row["batters_faced"],
+                                "pitches_last_3_days": row[
+                                    "pitches_last_3_days"
+                                ],
+                                "consecutive_days": row[
+                                    "consecutive_days"
+                                ],
+                                "workload_status": row["workload_status"],
+                            }
+                            for row in comparison["ranking"]
+                        ],
+                        "withheld": comparison["withheld"],
+                    }
 
                 conversation.append(
                     {

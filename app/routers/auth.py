@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -9,6 +9,7 @@ from app.core.auth import CurrentUser
 from app.core.config import settings
 from app.core.security import (
     create_access_token,
+    hash_password,
     verify_password,
 )
 from app.db.session import get_db
@@ -24,6 +25,25 @@ router = APIRouter(
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1)
     password: str = Field(min_length=1)
+
+
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=100, pattern=r"^[A-Za-z0-9_.-]+$")
+    password: str = Field(min_length=12, max_length=128)
+    team_code: Literal["KIA", "SS", "LG", "KT", "SSG", "NC", "OB", "LT", "HH", "WO"]
+    role: Literal["MANAGER", "COACH"]
+
+
+@router.post("/register", status_code=201)
+async def register(payload: RegisterRequest, session: Annotated[AsyncSession, Depends(get_db)]):
+    existing = await session.scalar(select(User).where(User.username == payload.username))
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="이미 사용 중인 아이디입니다.")
+    user = User(username=payload.username, password_hash=hash_password(payload.password), team_code=payload.team_code, role=payload.role)
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return {"id": user.id, "username": user.username, "team_code": user.team_code, "role": user.role}
 
 
 @router.post("/login")

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -52,6 +52,12 @@ class ConversationMessage(Base):
     content: Mapped[str] = mapped_column(
         Text,
         nullable=False,
+    )
+    # 구조화된 Tool 결과는 LLM 답변 본문과 분리해 저장한다. 따라서
+    # 대화 복원 시에도 문장 파싱 없이 동일한 UI를 재구성할 수 있다.
+    analysis_results: Mapped[list[dict] | None] = mapped_column(
+        JSON,
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

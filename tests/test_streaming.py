@@ -140,3 +140,90 @@ async def test_stream_agent_with_tool_call(monkeypatch):
         and item.get("call_id") == "call_001"
         for item in second_input
     )
+
+
+@pytest.mark.asyncio
+async def test_stream_agent_emits_structured_bullpen_comparison(
+    monkeypatch,
+):
+    tool_call = SimpleNamespace(
+        type="function_call",
+        name="compare_bullpen_candidates",
+        arguments='{"as_of_date":"2026-08-15","candidate_ids":["1"]}',
+        call_id="call_bullpen",
+        model_dump=lambda exclude_none=True: {
+            "type": "function_call",
+            "name": "compare_bullpen_candidates",
+            "arguments": (
+                '{"as_of_date":"2026-08-15","candidate_ids":["1"]}'
+            ),
+            "call_id": "call_bullpen",
+        },
+    )
+
+    async def fake_stream(events):
+        for event in events:
+            yield event
+
+    responses = [
+        fake_stream([
+            SimpleNamespace(
+                type="response.completed",
+                response=SimpleNamespace(output=[tool_call]),
+            )
+        ]),
+        fake_stream([
+            SimpleNamespace(type="response.output_text.delta", delta="완료"),
+            SimpleNamespace(
+                type="response.completed",
+                response=SimpleNamespace(output=[]),
+            ),
+        ]),
+    ]
+    client = SimpleNamespace(
+        responses=SimpleNamespace(create=AsyncMock(side_effect=responses))
+    )
+    monkeypatch.setattr(
+        streaming,
+        "execute_tool",
+        AsyncMock(return_value={
+            "ok": True,
+            "data": {
+                "team_code": "KT",
+                "as_of_date": "2026-08-15",
+                "ranking": [{
+                    "pitcher_id": "52060",
+                    "pitcher_name": "박영현",
+                    "k_minus_bb_pct": 14.83,
+                    "batters_faced": 100,
+                    "pitches_last_3_days": 0,
+                    "consecutive_days": 0,
+                    "workload_status": "NO_HIGH_LOAD_FLAG",
+                }],
+                "withheld": [],
+            },
+        }),
+    )
+
+    events = [
+        event async for event in streaming.stream_agent(
+            message="후보 비교", session=None, client=client
+        )
+    ]
+    analysis = next(data for name, data in events if name == "analysis_result")
+    assert analysis == {
+        "type": "bullpen_comparison",
+        "team_code": "KT",
+        "as_of_date": "2026-08-15",
+        "availability_verified": False,
+        "candidates": [{
+            "pitcher_id": "52060",
+            "pitcher_name": "박영현",
+            "k_minus_bb_pct": 14.83,
+            "batters_faced": 100,
+            "pitches_last_3_days": 0,
+            "consecutive_days": 0,
+            "workload_status": "NO_HIGH_LOAD_FLAG",
+        }],
+        "withheld": [],
+    }

@@ -68,6 +68,7 @@ async def save_exchange(
     conversation: Conversation,
     user_message: str,
     assistant_message: str,
+    analysis_results: list[dict] | None = None,
 ) -> None:
     # 응답이 끝났을 때 사용자 질문과 AI 답변을 함께 확정한다.
     session.add_all([
@@ -80,6 +81,7 @@ async def save_exchange(
             conversation_id=conversation.id,
             role="assistant",
             content=assistant_message,
+            analysis_results=analysis_results or None,
         ),
     ])
 
