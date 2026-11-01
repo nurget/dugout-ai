@@ -32,6 +32,11 @@ from app.tools.schemas import (
 from app.tools.bullpen_workload import get_bullpen_workload_tool
 from app.tools.schemas import BullpenWorkloadInput
 
+from app.tools.bullpen_comparison import (
+    compare_bullpen_candidates_tool,
+)
+from app.tools.schemas import BullpenComparisonInput
+
 TOOL_REGISTRY = {
     "get_game_state": (
         GameStateInput,
@@ -65,6 +70,10 @@ TOOL_REGISTRY = {
         BullpenWorkloadInput,
         get_bullpen_workload_tool,
     ),
+    "compare_bullpen_candidates": (
+        BullpenComparisonInput,
+        compare_bullpen_candidates_tool,
+    ),
 }
 
 
@@ -82,6 +91,7 @@ PUBLIC_TOOLS = frozenset({
 
 TEAM_SCOPED_TOOLS = frozenset({
     "get_bullpen_workload",
+    "compare_bullpen_candidates",
 })
 
 def tool_error(code: str, message: str) -> dict[str, Any]:

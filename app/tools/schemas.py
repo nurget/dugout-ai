@@ -44,3 +44,16 @@ class BullpenWorkloadInput(BaseModel):
     as_of_date: date = Field(
         description="분석 기준일. YYYY-MM-DD 형식",
     )
+    
+class BullpenComparisonInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    as_of_date: date = Field(
+        description="분석 기준일 YYYY-MM-DD",
+    )
+
+    candidate_ids: list[str] = Field(
+        min_length=1,
+        max_length=5,
+        description="사용자가 비교 대상으로 지정한 공식 선수 ID 목록",
+    )

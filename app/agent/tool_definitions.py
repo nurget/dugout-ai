@@ -25,6 +25,41 @@ GET_BULLPEN_WORKLOAD_DEFINITION = {
     "strict": True,
 }
 
+
+COMPARE_BULLPEN_CANDIDATES_DEFINITION = {
+    "type": "function",
+    "name": "compare_bullpen_candidates",
+    "description": (
+        "로그인한 KBO 구단의 투수 1~5명을 2026 정규시즌 "
+        "K-BB%, 표본 규모, 최근 3일 투구 부담으로 조건부 비교한다. "
+        "사용자가 선수 ID를 제공하지 않았다면 "
+        "search_season_pitchers로 먼저 ID를 확인한다. "
+        "당일 엔트리, 선발·구원 역할, 등판 가능 여부는 검증하지 않는다."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "as_of_date": {
+                "type": "string",
+                "description": "분석 기준일 YYYY-MM-DD",
+            },
+            "candidate_ids": {
+                "type": "array",
+                "description": "비교할 선수의 확인된 공식 ID",
+                "items": {
+                    "type": "string",
+                },
+            },
+        },
+        "required": [
+            "as_of_date",
+            "candidate_ids",
+        ],
+        "additionalProperties": False,
+    },
+    "strict": True,
+}
+
 AGENT_TOOLS = [
     {
         "type": "function",
@@ -271,5 +306,6 @@ AGENT_TOOLS = [
         },
         "strict": True,
     },
-    GET_BULLPEN_WORKLOAD_DEFINITION
+    GET_BULLPEN_WORKLOAD_DEFINITION,
+    COMPARE_BULLPEN_CANDIDATES_DEFINITION,
 ]
