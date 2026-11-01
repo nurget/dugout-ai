@@ -53,12 +53,14 @@ async def get_my_team_games(
     session: SessionDep,
     season: int = Query(default=2026, ge=1982, le=2100),
     season_type: str = Query(default="REGULAR", pattern="^(REGULAR|POSTSEASON)$"),
+    season_phase: str | None = Query(default=None, pattern="^(WILDCARD|SEMIPLAYOFF|PLAYOFF|KOREAN_SERIES)$"),
 ):
     games = await get_team_games(
         session=session,
         team_code=current_user.team_code,
         season=season,
         season_type=season_type,
+        season_phase=season_phase,
     )
 
     return {
@@ -89,6 +91,8 @@ async def get_my_team_pitchers(
 
     if official:
         return {"team_code": current_user.team_code, "season": season, "season_type": season_type, "count": len(official), "data": [{"id": f"official-{p.id}", "pitcher_name": p.pitcher_name, "games": p.games, "batters_faced": p.batters_faced, "strikeouts": p.strikeouts, "walks": p.walks, "k_pct": p.k_pct, "bb_pct": p.bb_pct, "k_minus_bb_pct": p.k_minus_bb_pct, "stat_source": "KBO_OFFICIAL"} for p in official], "note": ""}
+    if season_type != "REGULAR":
+        return {"team_code": current_user.team_code, "season": season, "season_type": season_type, "count": 0, "data": [], "note": ""}
     pitchers = await get_team_pitchers(session=session, team_code=current_user.team_code, season=season)
     return {
         "team_code": current_user.team_code,

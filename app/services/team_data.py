@@ -20,6 +20,7 @@ async def get_team_games(
     team_code: str,
     season: int = 2026,
     season_type: str | None = None,
+    season_phase: str | None = None,
 ) -> list[KboGame]:
     # 팀이 홈 또는 원정으로 참가한 경기 모두 조회한다.
     statement = (
@@ -35,6 +36,8 @@ async def get_team_games(
     )
     if season_type:
         statement = statement.where(KboGame.season_type == season_type)
+    if season_phase:
+        statement = statement.where(KboGame.season_phase == season_phase)
 
     result = await session.execute(statement)
     return list(result.scalars().all())

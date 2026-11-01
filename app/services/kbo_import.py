@@ -56,7 +56,7 @@ def normalize_game(raw: dict[str, Any], season: int) -> NormalizedGame:
             if score is not None and (type(score) is not int or score < 0):
                 raise ValueError("점수가 유효하지 않습니다.")
         season_type = "POSTSEASON" if raw.get("isPostseason") else "REGULAR"
-        phases = {3: "WILDCARD", 4: "SEMIPLAYOFF", 5: "PLAYOFF", 6: "KOREAN_SERIES"}
+        phases = {4: "WILDCARD", 5: "SEMIPLAYOFF", 6: "PLAYOFF", 7: "KOREAN_SERIES"}
         season_phase = phases.get(raw.get("series_id"), "REGULAR")
         return NormalizedGame(game_pk, season, season_type, season_phase, game_date, home_code, home_name,
                               away_code, away_name, home_score, away_score, status)

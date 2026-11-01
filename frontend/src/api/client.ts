@@ -37,8 +37,8 @@ export const api = {
   login: (username: string, password: string) => request<{ access_token: string; token_type: string; expires_in: number }>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }, null),
   me: () => request<User>("/api/auth/me"),
   team: () => request<TeamSummary>("/api/teams/me"),
-  games: (seasonType = "REGULAR") => request<{ data: Game[] }>(`/api/teams/me/games?season=2026&season_type=${seasonType === "REGULAR" ? "REGULAR" : "POSTSEASON"}`),
-  pitchers: (seasonType = "REGULAR") => request<{ data: Pitcher[]; note: string }>(`/api/teams/me/pitchers?season=2026&season_type=${seasonType === "REGULAR" ? "REGULAR" : "POSTSEASON"}`),
+  games: (phase = "REGULAR") => request<{ data: Game[] }>(`/api/teams/me/games?season=2026&season_type=${phase === "REGULAR" ? "REGULAR" : "POSTSEASON"}${phase === "REGULAR" ? "" : `&season_phase=${phase}`}`),
+  pitchers: (phase = "REGULAR") => request<{ data: Pitcher[]; note: string }>(`/api/teams/me/pitchers?season=2026&season_type=${phase}`),
   messages: (id: string) => request<{ messages: SavedMessage[] }>(`/api/agent/conversations/${id}/messages`),
 };
 
