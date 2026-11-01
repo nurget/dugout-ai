@@ -8,8 +8,7 @@ from datetime import date
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-import app.models
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import AsyncSessionLocal
@@ -68,6 +67,7 @@ def fetch_box_score(game_pk: str, season: int):
         return json.loads(response.read().decode("utf-8"))
 
 
+
 def parse_pitcher_table(table: dict, team_code: str):
     raw_table = table.get("table")
 
@@ -82,7 +82,6 @@ def parse_pitcher_table(table: dict, team_code: str):
 
     rows = parsed.get("rows", [])
     pitchers = []
-    seen_names = set()
 
     if not rows:
         raise ValueError("투수 기록 행이 없습니다.")
@@ -102,21 +101,14 @@ def parse_pitcher_table(table: dict, team_code: str):
         if not name or name.upper() in ("TOTAL", "합계"):
             continue
 
-        # 기존 포스트시즌 수집기가 검증한 열 위치:
-        # TBF=7, NP=8, BB=12, SO=13
         if len(values) <= 13:
             raise ValueError(
                 f"투수 기록 컬럼 부족: {team_code} {name}"
             )
 
-        if name in seen_names:
-            raise ValueError(
-                f"같은 팀 내 투수 이름 중복: {team_code} {name}"
-            )
-
-        seen_names.add(name)
-
         pitchers.append({
+            "appearance_order": len(pitchers) + 1,
+            "pitcher_id": None,
             "pitcher_name": name,
             "team_code": team_code,
             "batters_faced": parse_number(values[7]),
@@ -129,7 +121,6 @@ def parse_pitcher_table(table: dict, team_code: str):
         raise ValueError(f"투수 기록 없음: {team_code}")
 
     return pitchers
-
 
 def parse_game_pitchers(
     response: dict,
@@ -152,34 +143,49 @@ async def save_appearances(
     game_pk: str,
     rows: list[dict],
 ):
-    # 한 경기의 모든 투수 기록을 같은 트랜잭션으로 저장한다.
-    for row in rows:
-        existing = await db.scalar(
-            select(KboPitcherAppearance).where(
-                KboPitcherAppearance.game_pk == game_pk,
-                KboPitcherAppearance.team_code == row["team_code"],
-                KboPitcherAppearance.pitcher_name == row["pitcher_name"],
+    # 양 팀 데이터가 모두 파싱된 뒤 호출한다.
+    # 게임 전체의 기록을 하나의 트랜잭션으로 갱신한다.
+
+    if not rows:
+        raise ValueError("저장할 투수 기록이 없습니다.")
+
+    teams = {row["team_code"] for row in rows}
+
+    if len(teams) != 2:
+        raise ValueError("양 팀의 투수 기록이 필요합니다.")
+
+    keys = [
+        (row["team_code"], row["appearance_order"])
+        for row in rows
+    ]
+
+    if len(keys) != len(set(keys)):
+        raise ValueError("경기 내 등장 순서가 중복되었습니다.")
+
+    try:
+        # 공식 박스스코어의 전체 기록으로 해당 경기 내용을
+        # 교체한다. 이름 기준의 이전 Upsert 잔재를 남기지 않는다.
+        #
+        # 주의: 이 테이블의 행 ID를 참조하는 FK가 없는 현재 구조를 전제로 한다.
+        await db.execute(
+            delete(KboPitcherAppearance).where(
+                KboPitcherAppearance.game_pk == game_pk
             )
         )
 
-        if existing is None:
-            db.add(
-                KboPitcherAppearance(
-                    game_pk=game_pk,
-                    **row,
-                )
+        db.add_all([
+            KboPitcherAppearance(
+                game_pk=game_pk,
+                **row,
             )
-        else:
-            for key in (
-                "batters_faced",
-                "pitches",
-                "walks",
-                "strikeouts",
-            ):
-                setattr(existing, key, row[key])
+            for row in rows
+        ])
 
-    await db.commit()
+        await db.commit()
 
+    except Exception:
+        await db.rollback()
+        raise
 
 async def get_regular_games(
     db: AsyncSession,
@@ -223,6 +229,11 @@ async def main():
     parser.add_argument("--limit", type=int, default=1)
     parser.add_argument("--delay", type=float, default=0.5)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument(
+        "--missing-only",
+        action="store_true",
+        help="종료 경기 중 투수 등판 기록이 없는 경기만 수집",
+    )
 
     args = parser.parse_args()
 
@@ -248,6 +259,38 @@ async def main():
         )
 
         games = games[:args.limit]
+        
+        
+        # 먼저 DB 객체를 일반 데이터로 변환한다.
+        # 실패 후 rollback이 발생해도 경기 정보는 유지된다.
+        games = [
+            {
+                "game_pk": game.game_pk,
+                "game_date": game.game_date,
+                "away_team_code": game.away_team_code,
+                "home_team_code": game.home_team_code,
+                "status": game.status,
+            }
+            for game in games
+        ]
+
+        if args.missing_only:
+            result = await db.scalars(
+                select(KboPitcherAppearance.game_pk).distinct()
+            )
+            collected_game_ids = set(result.all())
+
+            # 완료된 경기 중 등판 기록이 전혀 없는 경기만 선택한다.
+            # 기존 데이터에 손대지 않기 위한 필터다.
+            games = [
+                game
+                for game in games
+                if game["status"] == "Final"
+                and game["game_pk"] not in collected_game_ids
+            ]
+
+        # 필터링한 다음 limit을 적용해야 빠진 경기를 놓치지 않는다.
+        games = games[:args.limit]
 
         print(f"수집 대상 경기: {len(games)}건")
         print(
@@ -259,7 +302,7 @@ async def main():
         failed = []
 
         for game in games:
-            game_pk = game.game_pk
+            game_pk = game["game_pk"]
 
             try:
                 response = await asyncio.to_thread(
@@ -270,12 +313,12 @@ async def main():
 
                 rows = parse_game_pitchers(
                     response,
-                    normalize_team(game.away_team_code),
-                    normalize_team(game.home_team_code),
+                    normalize_team(game["away_team_code"]),
+                    normalize_team(game["home_team_code"]),
                 )
 
                 print(
-                    f"[OK] {game.game_date} {game_pk}: "
+                    f"[OK] {game['game_date']} {game_pk}: "
                     f"{len(rows)}명"
                 )
 
