@@ -29,6 +29,8 @@ from app.tools.schemas import (
     ComparePitchersInput,
 )
 
+from app.tools.bullpen_workload import get_bullpen_workload_tool
+from app.tools.schemas import BullpenWorkloadInput
 
 TOOL_REGISTRY = {
     "get_game_state": (
@@ -59,6 +61,10 @@ TOOL_REGISTRY = {
         ComparePitchersInput,
         compare_pitchers_tool,
     ),
+    "get_bullpen_workload": (
+        BullpenWorkloadInput,
+        get_bullpen_workload_tool,
+    ),
 }
 
 
@@ -74,6 +80,9 @@ PUBLIC_TOOLS = frozenset({
     "compare_pitchers",
 })
 
+TEAM_SCOPED_TOOLS = frozenset({
+    "get_bullpen_workload",
+})
 
 def tool_error(code: str, message: str) -> dict[str, Any]:
     return {
@@ -83,6 +92,7 @@ def tool_error(code: str, message: str) -> dict[str, Any]:
             "message": message,
         },
     }
+
 
 
 async def execute_tool(
@@ -99,22 +109,37 @@ async def execute_tool(
             "허용되지 않은 도구입니다.",
         )
 
-    # 공개 Tool만 실행을 허용한다.
-    # 비공개 Tool은 별도의 사용자·구단 인가 구현 후 등록해야 한다.
-    if tool_name not in PUBLIC_TOOLS:
+    is_public = tool_name in PUBLIC_TOOLS
+    is_team_scoped = tool_name in TEAM_SCOPED_TOOLS
+
+    if not is_public and not is_team_scoped:
         return tool_error(
             "FORBIDDEN",
             "이 도구를 실행할 권한이 없습니다.",
         )
 
+    # 구단 전용 Tool은 검증된 인증 컨텍스트가 필수다.
+    if is_team_scoped:
+        if context is None or not context.team_code:
+            return tool_error(
+                "FORBIDDEN",
+                "구단 인증 정보가 필요합니다.",
+            )
+
     schema_class, handler = tool
 
     try:
         validated = schema_class.model_validate(arguments)
+        kwargs = validated.model_dump()
+
+        if is_team_scoped:
+            # 팀 정보는 모델이 생성한 인자가 아니라
+            # 서버가 검증한 인증 컨텍스트에서만 주입한다.
+            kwargs["authenticated_team_code"] = context.team_code
 
         result = await handler(
             session,
-            **validated.model_dump(),
+            **kwargs,
         )
 
         return {

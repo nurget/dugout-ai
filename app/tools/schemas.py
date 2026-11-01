@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
+
+from datetime import date
 
 from app.sabermetrics.run_expectancy import RE24Input
 
@@ -35,3 +37,10 @@ class ComparePitchersInput(BaseModel):
     first_pitcher_id: str = Field(min_length=1)
     second_pitcher_id: str = Field(min_length=1)
     team: str | None = None
+
+class BullpenWorkloadInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    as_of_date: date = Field(
+        description="분석 기준일. YYYY-MM-DD 형식",
+    )

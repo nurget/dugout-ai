@@ -1,5 +1,30 @@
 # LLM에 노출하는 Tool 목록이다.
 
+GET_BULLPEN_WORKLOAD_DEFINITION = {
+    "type": "function",
+    "name": "get_bullpen_workload",
+    "description": (
+        "로그인한 구단의 2026 정규시즌 투수별 "
+        "최근 3일 투구 수, 연속 등판, 휴식일을 조회한다. "
+        "선발·구원 역할 및 실제 등판 가능 여부는 보장하지 않는다."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "as_of_date": {
+                "type": "string",
+                "description": (
+                    "분석 기준 날짜 YYYY-MM-DD. "
+                    "해당 날짜 이전 3일의 정규시즌 기록을 조회한다."
+                ),
+            },
+        },
+        "required": ["as_of_date"],
+        "additionalProperties": False,
+    },
+    "strict": True,
+}
+
 AGENT_TOOLS = [
     {
         "type": "function",
@@ -246,4 +271,5 @@ AGENT_TOOLS = [
         },
         "strict": True,
     },
+    GET_BULLPEN_WORKLOAD_DEFINITION
 ]

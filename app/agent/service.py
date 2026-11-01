@@ -14,6 +14,8 @@ from app.agent.tool_definitions import AGENT_TOOLS
 from app.core.config import settings
 from app.tools.registry import execute_tool
 
+from app.agent.context import AgentContext
+
 logger = logging.getLogger(__name__)
 MAX_TOOL_ROUNDS = 5
 
@@ -35,6 +37,18 @@ SYSTEM_PROMPT = """
 12. Tool 입력에 필요한 정보가 확인되지 않았으면 임의로 값을 만들어 실행하지 말고 사용자에게 확인합니다.
 13. 최종 답변에서는 확인된 사실, 시뮬레이션 결과, 추가로 필요한 데이터를 구분하여 설명합니다.
 
+[불펜 투구 부담 분석]
+
+- 투수의 최근 투구 부담에 관한 질문은 get_bullpen_workload Tool을 사용한다.
+- 실제 DB 조회 결과만 근거로 투구 수, 연투, 휴식일을 설명한다.
+- REVIEW_REQUIRED는 추가 검토가 필요하다는 뜻이며 등판 불가 확정이 아니다.
+- NO_HIGH_LOAD_FLAG는 출전 가능 확정이 아니다.
+- AMBIGUOUS_IDENTITY인 선수는 서로 다른 선수의 기록을 합산하지 않는다.
+- 선발·구원 역할과 당일 출전 가능 여부는 확인되지 않으면 추정하지 않는다.
+- 정규시즌 기록만 제공된 경우 포스트시즌을 포함한 최근 부담처럼 설명하지 않는다.
+- 실제 날짜가 아닌 과거 기준일 조회는 과거 데이터 분석임을 명시한다.
+- 등판 횟수와 등판 일수는 구분한다. 날짜 수를 실제 등판 횟수라고 표현하지 않는다.
+
 답변 마무리 원칙:
 - 사용자가 요청한 분석이 완료되었다면 불필요한 후속 질문을 하지 않습니다.
 - 이미 수행한 분석을 다시 수행할지 묻지 않습니다.
@@ -54,6 +68,7 @@ async def run_agent(
     message: str,
     session: AsyncSession,
     client: AsyncOpenAI,
+    context: AgentContext | None = None,
 ) -> dict[str, Any]:
     # 요청 본문에서 전달받은 사용자 질문을 그대로 모델에 전달한다.
     # 영구적인 대화 저장은 다음 단계에서 별도로 구현한다.
@@ -115,6 +130,7 @@ async def run_agent(
                         session=session,
                         tool_name=tool_call.name,
                         arguments=arguments,
+                        context=context,
                     )
                 except (json.JSONDecodeError, ValueError):
                     result = {
