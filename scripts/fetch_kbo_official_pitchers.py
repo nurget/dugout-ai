@@ -146,8 +146,11 @@ def select_filter(driver, select_id, value):
     time.sleep(0.8)
 
 
-def configure_filters(driver, season, team_code):
-    driver.get(BASE_URL)
+def configure_filters(driver, season, team_code, page="Basic1"):
+    driver.get(
+        f"https://www.koreabaseball.com/"
+        f"Record/Player/PitcherBasic/{page}.aspx"
+    )
 
     wait = WebDriverWait(driver, 20)
 
@@ -236,7 +239,7 @@ def parse_records(html: str, team_code: str):
         for th in table.select("thead th")
     ]
 
-    required_columns = {"선수명", "G", "BB", "SO"}
+    required_columns = {"선수명"}
 
     if not required_columns.issubset(set(headers)):
         raise ValueError(
@@ -297,8 +300,13 @@ def find_next_page_button(driver, next_page):
     return button
 
 
-def collect_team(driver, season: int, team_code: str):
-    configure_filters(driver, season, team_code)
+def collect_team(
+    driver, 
+    season: int, 
+    team_code: str,
+    page: str = "Basic1",
+    ):
+    configure_filters(driver, season, team_code, page)
 
     records = {}
     page_number = 1
@@ -391,64 +399,119 @@ def main():
     args = parser.parse_args()
 
     output = OUTPUT_DIR / (
-        f"kbo_official_pitchers_raw_{args.season}.json"
-    )
+    f"kbo_official_pitchers_merged_{args.season}.json"
+)
 
     if output.exists():
         raise FileExistsError(
-            f"기존 원본 파일을 보호하기 위해 중단합니다: {output}"
+            f"기존 병합 파일을 보호하기 위해 중단합니다: {output}"
         )
 
     driver = create_driver()
-    all_records = {}
+
+    results = {}
 
     try:
-        for team_code in TEAM_CODES:
-            try:
+        for page in ("Basic1", "Basic2"):
+            all_records = {}
+
+            for team_code in TEAM_CODES:
                 team_records = collect_team(
                     driver,
                     args.season,
                     team_code,
-                )
-            except Exception:
-                save_debug_html(
-                    driver,
-                    f"{args.season}_{team_code}_failed",
-                )
-                raise
-
-            print(
-                f"[Basic1] {team_code}: "
-                f"{len(team_records)}명"
-            )
-
-            for record in team_records:
-                key = (
-                    record["team_code"],
-                    record["player_id"],
+                    page=page,
                 )
 
-                if key in all_records:
-                    raise RuntimeError(
-                        f"중복 선수 기록: {key}"
+                print(
+                    f"[{page}] {team_code}: "
+                    f"{len(team_records)}명"
+                )
+
+                for record in team_records:
+                    key = (
+                        record["team_code"],
+                        record["player_id"],
                     )
 
-                all_records[key] = record
+                    if key in all_records:
+                        raise RuntimeError(
+                            f"{page}: 중복 선수 기록 {key}"
+                        )
 
-            time.sleep(0.5)
+                    all_records[key] = record
+
+            results[page] = all_records
 
     finally:
         driver.quit()
+    
+    basic1 = results["Basic1"]
+    basic2 = results["Basic2"]
+
+    merged = []
+
+    missing_tbf = []
+
+    for key, record in basic1.items():
+        detail = basic2.get(key)
+
+        if detail is None or not detail.get("TBF"):
+            missing_tbf.append(key)
+            continue
+
+        try:
+            games = int(record["G"].replace(",", ""))
+            walks = int(record["BB"].replace(",", ""))
+            strikeouts = int(record["SO"].replace(",", ""))
+            batters_faced = int(detail["TBF"].replace(",", ""))
+        except (ValueError, KeyError) as error:
+            raise ValueError(
+                f"선수 기록 숫자 변환 실패: {key}"
+            ) from error
+
+        if batters_faced <= 0:
+            missing_tbf.append(key)
+            continue
+
+        merged.append({
+            "player_id": record["player_id"],
+            "player_name": record["선수명"],
+            "team_code": record["team_code"],
+            "games": games,
+            "batters_faced": batters_faced,
+            "walks": walks,
+            "strikeouts": strikeouts,
+            "k_pct": round(
+                strikeouts / batters_faced * 100, 2
+            ),
+            "bb_pct": round(
+                walks / batters_faced * 100, 2
+            ),
+            "k_minus_bb_pct": round(
+                (strikeouts - walks) / batters_faced * 100, 2
+            ),
+        })
+
+    if missing_tbf:
+        raise RuntimeError(
+            f"TBF 병합에 실패한 선수: {missing_tbf[:20]} "
+            f"(총 {len(missing_tbf)}명)"
+        )
+
+    print(f"병합 성공: {len(merged)}명")
 
     result = {
         "season": args.season,
         "season_type": "REGULAR",
-        "source": "KBO_RECORD_ROOM_BASIC1",
+        "source": "KBO_RECORD_ROOM_BASIC1_BASIC2",
         "collected_at": datetime.now().isoformat(),
-        "records": list(all_records.values()),
+        "records": merged,
     }
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output = OUTPUT_DIR / (
+        f"kbo_official_pitchers_merged_{args.season}.json"
+    )
 
     output.write_text(
         json.dumps(
@@ -459,7 +522,7 @@ def main():
         encoding="utf-8",
     )
 
-    print(f"\n총 선수 기록: {len(all_records)}명")
+    print(f"\n총 병합 선수 기록: {len(merged)}명")
     print(f"저장 완료: {output}")
 
 
