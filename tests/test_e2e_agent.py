@@ -17,6 +17,40 @@ pytestmark = [
 ]
 
 BASE_URL = os.getenv("E2E_BASE_URL", "http://127.0.0.1:8000")
+E2E_USERNAME = os.getenv("E2E_USERNAME", "dugout_e2e")
+E2E_PASSWORD = os.getenv(
+    "E2E_PASSWORD",
+    "dugout-e2e-password-123",
+)
+
+
+def authenticate(client: httpx.Client) -> None:
+    credentials = {
+        "username": E2E_USERNAME,
+        "password": E2E_PASSWORD,
+    }
+    login = client.post("/api/auth/login", json=credentials)
+
+    if login.status_code == 401:
+        register = client.post(
+            "/api/auth/register",
+            json={
+                **credentials,
+                "team_code": "KIA",
+            },
+        )
+        if register.status_code == 403:
+            pytest.fail(
+                "E2E 계정을 먼저 생성하거나 서버에서 "
+                "ALLOW_PUBLIC_REGISTRATION=true를 설정하세요."
+            )
+        assert register.status_code in {201, 409}, register.text
+        login = client.post("/api/auth/login", json=credentials)
+
+    assert login.status_code == 200, login.text
+    client.headers["Authorization"] = (
+        f"Bearer {login.json()['access_token']}"
+    )
 
 
 def stream_chat(client: httpx.Client, payload: dict) -> list[tuple[str, dict]]:
@@ -58,6 +92,7 @@ def event_data(events: list[tuple[str, dict]], name: str) -> list[dict]:
 
 def test_conversation_tools_streaming_and_persistence():
     with httpx.Client(base_url=BASE_URL, timeout=120.0) as client:
+        authenticate(client)
         health = client.get("/health")
         assert health.status_code == 200
 

@@ -1,7 +1,12 @@
-export type User = { id: number; username: string; team_code: string; role: "MANAGER" | "COACH" | string };
-export type TeamSummary = { username: string; team_code: string; role: string; season: number };
+export type UserId = string;
+export type UserRole = "MANAGER" | "COACH";
+export type TeamCode = "KIA" | "SS" | "LG" | "KT" | "SSG" | "NC" | "OB" | "LT" | "HH" | "WO";
+export type SeasonPhase = "REGULAR" | "WILDCARD" | "SEMIPLAYOFF" | "PLAYOFF" | "KOREAN_SERIES";
+
+export type User = { id: UserId; username: string; team_code: TeamCode; role: UserRole };
+export type TeamSummary = { username: string; team_code: TeamCode; role: UserRole; season: number };
 export type Game = { game_pk: string; game_date: string; home_team_code: string; away_team_code: string; home_score: number | null; away_score: number | null; status: string };
-export type Pitcher = { id: number | string; pitcher_name: string; games: number; batters_faced: number | null; strikeouts: number; walks: number; k_pct: number | null; bb_pct: number | null; k_minus_bb_pct: number | null; stat_source?: string };
+export type Pitcher = { id: number | string; pitcher_name: string; games: number; batters_faced: number | null; strikeouts: number; walks: number; k_pct: number | null; bb_pct: number | null; k_minus_bb_pct: number | null; stat_source?: "KBO_OFFICIAL" };
 export type BullpenComparisonResult = {
   type: "bullpen_comparison";
   team_code: string;
@@ -11,6 +16,10 @@ export type BullpenComparisonResult = {
   withheld: Array<{ pitcher_id: string; pitcher_name?: string; reason: string }>;
 };
 export type SavedMessage = { id: string; role: "user" | "assistant"; content: string; created_at: string; analysis_results: BullpenComparisonResult[] };
+type LoginResponse = { access_token: string; token_type: "bearer"; expires_in: number };
+type TeamGamesResponse = { team_code: TeamCode; season: number; season_type: "REGULAR" | "POSTSEASON"; count: number; data: Game[] };
+type TeamPitchersResponse = { team_code: TeamCode; season: number; season_type: string; count: number; data: Pitcher[]; note: string };
+type ConversationMessagesResponse = { conversation_id: string; messages: SavedMessage[] };
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 export const tokenKey = "dugout_access_token";
@@ -35,20 +44,25 @@ async function request<T>(path: string, init: RequestInit = {}, token = getToken
   const response = await fetch(`${baseUrl}${path}`, { ...init, headers });
   if (!response.ok) {
     let message = `요청에 실패했습니다. (${response.status})`;
-    try { const body = await response.json(); message = body.detail ?? body.message ?? message; } catch { /* non-JSON error */ }
+    try {
+      const body = await response.json();
+      message = body.detail ?? body.message ?? message;
+    } catch {
+      message = `요청에 실패했습니다. (${response.status})`;
+    }
     throw new ApiError(response.status, message);
   }
   return response.json() as Promise<T>;
 }
 
 export const api = {
-  login: (username: string, password: string) => request<{ access_token: string; token_type: string; expires_in: number }>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }, null),
-  register: (username: string, password: string, teamCode: string, role: string) => request<User>("/api/auth/register", { method: "POST", body: JSON.stringify({ username, password, team_code: teamCode, role }) }, null),
+  login: (username: string, password: string) => request<LoginResponse>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }, null),
+  register: (username: string, password: string, teamCode: TeamCode) => request<User>("/api/auth/register", { method: "POST", body: JSON.stringify({ username, password, team_code: teamCode }) }, null),
   me: () => request<User>("/api/auth/me"),
   team: () => request<TeamSummary>("/api/teams/me"),
-  games: (phase = "REGULAR") => request<{ data: Game[] }>(`/api/teams/me/games?season=2026&season_type=${phase === "REGULAR" ? "REGULAR" : "POSTSEASON"}${phase === "REGULAR" ? "" : `&season_phase=${phase}`}`),
-  pitchers: (phase = "REGULAR") => request<{ data: Pitcher[]; note: string }>(`/api/teams/me/pitchers?season=2026&season_type=${phase}`),
-  messages: (id: string) => request<{ messages: SavedMessage[] }>(`/api/agent/conversations/${id}/messages`),
+  games: (phase: SeasonPhase = "REGULAR") => request<TeamGamesResponse>(`/api/teams/me/games?season=2026&season_type=${phase === "REGULAR" ? "REGULAR" : "POSTSEASON"}${phase === "REGULAR" ? "" : `&season_phase=${phase}`}`),
+  pitchers: (phase: SeasonPhase = "REGULAR") => request<TeamPitchersResponse>(`/api/teams/me/pitchers?season=2026&season_type=${phase}`),
+  messages: (id: string) => request<ConversationMessagesResponse>(`/api/agent/conversations/${id}/messages`),
 };
 
 export function apiUrl(path: string) { return `${baseUrl}${path}`; }

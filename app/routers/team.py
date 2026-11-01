@@ -97,6 +97,7 @@ async def get_my_team_pitchers(
     return {
         "team_code": current_user.team_code,
         "season": season,
+        "season_type": season_type,
         "count": len(pitchers),
         "data": [
             serialize_model(pitcher)

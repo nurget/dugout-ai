@@ -111,7 +111,6 @@ async def simulate_pitching_decision(
     pitch_count: int,
     runner_on_first: bool = False,
 ) -> dict:
-    # 다른 Tool과 인터페이스를 맞추기 위해 session을 받음요
     scenario = PitchingScenario(
         inning=inning,
         outs=outs,
@@ -127,7 +126,6 @@ async def calculate_re24_tool(
     after: dict,
     runs_scored: int,
 ) -> dict:
-    # 현재 Registry는 DB 조회 Tool과 계산 Tool을 같은 인터페이스로 실행한다.
     data = RE24Input(
         before=before,
         after=after,

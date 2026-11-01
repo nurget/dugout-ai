@@ -4,7 +4,64 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.agent import streaming
+from app.agent.tool_definitions import FINALIZE_ANALYSIS_TOOL_NAME
 from app.utils.sse import format_sse
+
+
+class FakeToolCall:
+    type = "function_call"
+
+    def __init__(
+        self,
+        name: str,
+        arguments: str,
+        call_id: str,
+    ) -> None:
+        self.name = name
+        self.arguments = arguments
+        self.call_id = call_id
+
+    def model_dump(self, exclude_none=True):
+        return {
+            "type": self.type,
+            "name": self.name,
+            "arguments": self.arguments,
+            "call_id": self.call_id,
+        }
+
+
+def response(*items):
+    return SimpleNamespace(output=list(items), usage=None)
+
+
+async def fake_stream(events):
+    for event in events:
+        yield event
+
+
+def final_stream(*deltas: str):
+    completed = SimpleNamespace(output=[], usage=None)
+    return fake_stream([
+        *[
+            SimpleNamespace(
+                type="response.output_text.delta",
+                delta=delta,
+            )
+            for delta in deltas
+        ],
+        SimpleNamespace(
+            type="response.completed",
+            response=completed,
+        ),
+    ])
+
+
+def finalize_call() -> FakeToolCall:
+    return FakeToolCall(
+        FINALIZE_ANALYSIS_TOOL_NAME,
+        "{}",
+        "call_finalize",
+    )
 
 
 def test_sse_format():
@@ -12,7 +69,6 @@ def test_sse_format():
         "answer_delta",
         {"delta": "KIA 투수"},
     )
-
     assert event.startswith("event: answer_delta\n")
     assert "KIA 투수" in event
     assert event.endswith("\n\n")
@@ -20,100 +76,34 @@ def test_sse_format():
 
 @pytest.mark.asyncio
 async def test_stream_agent_with_tool_call(monkeypatch):
-    class FakeToolCall:
-        type = "function_call"
-        name = "get_pitcher_status"
-        arguments = '{"player_id":1}'
-        call_id = "call_001"
-
-        def model_dump(self, exclude_none=True):
-            return {
-                "type": self.type,
-                "name": self.name,
-                "arguments": self.arguments,
-                "call_id": self.call_id,
-            }
-
-    tool_call = FakeToolCall()
-
-    first_response = SimpleNamespace(
-        output=[tool_call],
+    tool_call = FakeToolCall(
+        "get_pitcher_status",
+        '{"player_id":1}',
+        "call_001",
     )
-
-    second_response = SimpleNamespace(
-        output=[
-            SimpleNamespace(
-                type="message",
-                model_dump=lambda exclude_none=True: {
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [
-                        {"type": "output_text", "text": "분석 완료"}
-                    ],
-                },
-            )
-        ],
-    )
-
-    async def fake_stream(events):
-        for event in events:
-            yield event
-
-    first_events = fake_stream([
-        SimpleNamespace(
-            type="response.completed",
-            response=first_response,
-        ),
-    ])
-
-    second_events = fake_stream([
-        SimpleNamespace(
-            type="response.output_text.delta",
-            delta="분석",
-        ),
-        SimpleNamespace(
-            type="response.output_text.delta",
-            delta=" 완료",
-        ),
-        SimpleNamespace(
-            type="response.completed",
-            response=second_response,
-        ),
-    ])
-
     mock_client = SimpleNamespace(
         responses=SimpleNamespace(
-            create=AsyncMock(
-                side_effect=[first_events, second_events]
-            )
+            create=AsyncMock(side_effect=[
+                response(tool_call),
+                response(finalize_call()),
+                final_stream("분석", " 완료"),
+            ])
         )
     )
+    mock_tool = AsyncMock(return_value={
+        "ok": True,
+        "data": {"name": "샘플 선발 A"},
+    })
+    monkeypatch.setattr(streaming, "execute_tool", mock_tool)
 
-    mock_tool = AsyncMock(
-        return_value={
-            "ok": True,
-            "data": {"name": "샘플 선발 A"},
-        }
-    )
-
-    monkeypatch.setattr(
-        streaming,
-        "execute_tool",
-        mock_tool,
-    )
-
-    events = []
-
-    async for event in streaming.stream_agent(
-        message="선수 ID 1을 확인해줘.",
-        session=None,
-        client=mock_client,
-    ):
-        events.append(event)
-
-    event_names = [name for name, _ in events]
-
-    assert event_names == [
+    events = [
+        event async for event in streaming.stream_agent(
+            message="선수 ID 1을 확인해줘.",
+            session=None,
+            client=mock_client,
+        )
+    ]
+    assert [name for name, _ in events] == [
         "started",
         "tool_start",
         "tool_result",
@@ -121,24 +111,67 @@ async def test_stream_agent_with_tool_call(monkeypatch):
         "answer_delta",
         "completed",
     ]
+    assert "".join(
+        data["delta"]
+        for name, data in events
+        if name == "answer_delta"
+    ) == "분석 완료"
+    mock_tool.assert_awaited_once()
 
+    second_input = (
+        mock_client.responses.create.call_args_list[1].kwargs["input"]
+    )
+    assert any(
+        item.get("type") == "function_call_output"
+        and item.get("call_id") == "call_001"
+        for item in second_input
+    )
+    assert (
+        mock_client.responses.create.call_args_list[0]
+        .kwargs["tool_choice"]
+        == "required"
+    )
+    assert (
+        mock_client.responses.create.call_args_list[2]
+        .kwargs["tool_choice"]
+        == "none"
+    )
+
+
+@pytest.mark.asyncio
+async def test_planning_text_is_not_emitted_or_forwarded(monkeypatch):
+    planning_message = SimpleNamespace(
+        type="message",
+        model_dump=lambda exclude_none=True: {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "중간 설명"}],
+        },
+    )
+    client = SimpleNamespace(
+        responses=SimpleNamespace(
+            create=AsyncMock(side_effect=[
+                response(planning_message, finalize_call()),
+                final_stream("최종 답변"),
+            ])
+        )
+    )
+
+    events = [
+        event async for event in streaming.stream_agent(
+            message="간단히 답해줘.",
+            session=None,
+            client=client,
+        )
+    ]
     answer = "".join(
         data["delta"]
         for name, data in events
         if name == "answer_delta"
     )
-
-    assert answer == "분석 완료"
-    mock_tool.assert_awaited_once()
-
-    second_call = mock_client.responses.create.call_args_list[1]
-    second_input = second_call.kwargs["input"]
-
-    # 두 번째 LLM 호출에는 첫 Tool의 실행 결과가 포함돼야 한다.
-    assert any(
-        item.get("type") == "function_call_output"
-        and item.get("call_id") == "call_001"
-        for item in second_input
+    assert answer == "최종 답변"
+    assert "중간 설명" not in str(
+        client.responses.create.call_args_list[1].kwargs["input"]
     )
 
 
@@ -146,42 +179,19 @@ async def test_stream_agent_with_tool_call(monkeypatch):
 async def test_stream_agent_emits_structured_bullpen_comparison(
     monkeypatch,
 ):
-    tool_call = SimpleNamespace(
-        type="function_call",
-        name="compare_bullpen_candidates",
-        arguments='{"as_of_date":"2026-08-15","candidate_ids":["1"]}',
-        call_id="call_bullpen",
-        model_dump=lambda exclude_none=True: {
-            "type": "function_call",
-            "name": "compare_bullpen_candidates",
-            "arguments": (
-                '{"as_of_date":"2026-08-15","candidate_ids":["1"]}'
-            ),
-            "call_id": "call_bullpen",
-        },
+    tool_call = FakeToolCall(
+        "compare_bullpen_candidates",
+        '{"as_of_date":"2026-08-15","candidate_ids":["1"]}',
+        "call_bullpen",
     )
-
-    async def fake_stream(events):
-        for event in events:
-            yield event
-
-    responses = [
-        fake_stream([
-            SimpleNamespace(
-                type="response.completed",
-                response=SimpleNamespace(output=[tool_call]),
-            )
-        ]),
-        fake_stream([
-            SimpleNamespace(type="response.output_text.delta", delta="완료"),
-            SimpleNamespace(
-                type="response.completed",
-                response=SimpleNamespace(output=[]),
-            ),
-        ]),
-    ]
     client = SimpleNamespace(
-        responses=SimpleNamespace(create=AsyncMock(side_effect=responses))
+        responses=SimpleNamespace(
+            create=AsyncMock(side_effect=[
+                response(tool_call),
+                response(finalize_call()),
+                final_stream("완료"),
+            ])
+        )
     )
     monkeypatch.setattr(
         streaming,
@@ -207,10 +217,14 @@ async def test_stream_agent_emits_structured_bullpen_comparison(
 
     events = [
         event async for event in streaming.stream_agent(
-            message="후보 비교", session=None, client=client
+            message="후보 비교",
+            session=None,
+            client=client,
         )
     ]
-    analysis = next(data for name, data in events if name == "analysis_result")
+    analysis = next(
+        data for name, data in events if name == "analysis_result"
+    )
     assert analysis == {
         "type": "bullpen_comparison",
         "team_code": "KT",

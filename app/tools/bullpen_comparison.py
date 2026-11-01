@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.pitching_recommendation_integration import (
     compare_verified_bullpen_candidates,
 )
-from app.services.team_bullpen import normalize_official_team_code
+from app.services.team_codes import normalize_official_team_code
 
 
 VALID_TEAMS = frozenset({

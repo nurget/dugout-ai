@@ -1,7 +1,7 @@
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,18 +28,29 @@ class LoginRequest(BaseModel):
 
 
 class RegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     username: str = Field(min_length=3, max_length=100, pattern=r"^[A-Za-z0-9_.-]+$")
     password: str = Field(min_length=12, max_length=128)
     team_code: Literal["KIA", "SS", "LG", "KT", "SSG", "NC", "OB", "LT", "HH", "WO"]
-    role: Literal["MANAGER", "COACH"]
 
 
 @router.post("/register", status_code=201)
 async def register(payload: RegisterRequest, session: Annotated[AsyncSession, Depends(get_db)]):
+    if not settings.allow_public_registration:
+        raise HTTPException(
+            status_code=403,
+            detail="공개 회원가입이 비활성화되어 있습니다.",
+        )
     existing = await session.scalar(select(User).where(User.username == payload.username))
     if existing is not None:
         raise HTTPException(status_code=409, detail="이미 사용 중인 아이디입니다.")
-    user = User(username=payload.username, password_hash=hash_password(payload.password), team_code=payload.team_code, role=payload.role)
+    user = User(
+        username=payload.username,
+        password_hash=hash_password(payload.password),
+        team_code=payload.team_code,
+        role="COACH",
+    )
     session.add(user)
     await session.commit()
     await session.refresh(user)

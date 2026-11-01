@@ -6,15 +6,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from openai import AsyncOpenAI
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent.context import AgentContext
-from app.agent.service import AgentExecutionError, run_agent
 from app.agent.streaming import stream_agent
 from app.core.auth import CurrentUser
 from app.core.config import settings
-from app.db.session import AsyncSessionLocal, get_db
-from app.schemas.chat import ChatRequest, ChatResponse
+from app.db.session import get_db, get_session_factory
+from app.schemas.chat import ChatRequest
 from app.utils.sse import format_sse
 
 from app.repositories.conversation import (
@@ -48,41 +47,10 @@ router = APIRouter(
 )
 
 SessionDep = Annotated[AsyncSession, Depends(get_db)]
-
-
-@router.post("/chat", response_model=ChatResponse)
-async def chat(
-    request: ChatRequest,
-    session: SessionDep,
-    current_user: CurrentUser,
-):
-    if not settings.openai_api_key:
-        raise HTTPException(
-            status_code=503,
-            detail="AI 서비스가 설정되지 않았습니다.",
-        )
-
-    # 이 경로는 기존 비스트리밍 분석용으로 유지한다.
-    # 현재 run_agent는 공개 Tool만 사용하도록 제한해야 한다.
-    try:
-        async with AsyncOpenAI(
-            api_key=settings.openai_api_key,
-            timeout=20.0,
-            max_retries=1,
-        ) as client:
-            result = await run_agent(
-                message=request.message,
-                session=session,
-                client=client,
-            )
-
-        return ChatResponse(**result)
-
-    except AgentExecutionError as error:
-        raise HTTPException(
-            status_code=503,
-            detail=str(error),
-        ) from error
+SessionFactoryDep = Annotated[
+    async_sessionmaker[AsyncSession],
+    Depends(get_session_factory),
+]
 
 
 @router.post("/chat/stream")
@@ -90,6 +58,7 @@ async def chat_stream(
     payload: ChatRequest,
     request: Request,
     current_user: CurrentUser,
+    session_factory: SessionFactoryDep,
 ):
     if not settings.openai_api_key:
         raise HTTPException(
@@ -105,7 +74,7 @@ async def chat_stream(
 
     # 권한 검사는 SSE 응답이 시작되기 전에 수행한다.
     if payload.conversation_id is not None:
-        async with AsyncSessionLocal() as db:
+        async with session_factory() as db:
             conversation_id = str(payload.conversation_id)
 
             await require_conversation_access(
@@ -128,8 +97,8 @@ async def chat_stream(
 
     async def generate():
         # Tool 실행 세션과 감사 기록 세션을 분리한다.
-        async with AsyncSessionLocal() as session:
-            async with AsyncSessionLocal() as audit_db:
+        async with session_factory() as session:
+            async with session_factory() as audit_db:
                 async with AsyncOpenAI(
                     api_key=settings.openai_api_key,
                     timeout=20.0,
@@ -155,7 +124,6 @@ async def chat_stream(
                                 team_code=context.team_code,
                             )
 
-                            # 대화와 소유권을 함께 저장한다.
                             await session.commit()
                             history = []
 

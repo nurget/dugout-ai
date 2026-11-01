@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.kbo_workload import get_kbo_team_workload
 from app.services.pitching_recommendation import recommend_bullpen
-from app.services.team_bullpen import normalize_official_team_code
+from app.services.team_codes import normalize_official_team_code
 
 
 VALID_TEAMS = frozenset({

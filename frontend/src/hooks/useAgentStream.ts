@@ -1,10 +1,10 @@
 import { useRef, useState } from "react";
-import { apiUrl, getToken, type BullpenComparisonResult } from "../api/client";
+import { apiUrl, getToken, type BullpenComparisonResult, type UserId } from "../api/client";
 
 export type AgentStatus = "idle" | "connecting" | "analyzing" | "generating" | "completed" | "failed" | "cancelled";
 export type ToolEvent = { tool: string; ok?: boolean; round?: number; duration_ms?: number; error?: { code: string; message: string } | null };
 
-export function useAgentStream(accountId: number | null, onUnauthorized: () => void) {
+export function useAgentStream(accountId: UserId | null, onUnauthorized: () => void) {
   const storageKey = accountId ? `dugout_conversation_id:${accountId}` : "";
   const [conversationId, setConversationId] = useState<string | null>(() => storageKey ? sessionStorage.getItem(storageKey) : null);
   const [answer, setAnswer] = useState(""); const [analysisResults, setAnalysisResults] = useState<BullpenComparisonResult[]>([]); const [tools, setTools] = useState<ToolEvent[]>([]); const [status, setStatus] = useState<AgentStatus>("idle"); const [error, setError] = useState<string | null>(null); const [historyVersion, setHistoryVersion] = useState(0);

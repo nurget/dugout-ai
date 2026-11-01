@@ -5,11 +5,7 @@ import json
 import math
 from pathlib import Path
 
-import app.models
-from sqlalchemy import text
-
-from app.db.base import Base
-from app.db.session import AsyncSessionLocal, engine
+from app.db.session import AsyncSessionLocal
 from app.services.kbo_official_pitching import (
     fetch_official_pitchers,
     import_official_pitchers,
@@ -135,41 +131,6 @@ def load_pitchers_from_json(
     return rows
 
 
-async def prepare_legacy_schema():
-    # 기존 KBO 직접 수집 경로와의 호환성을 유지한다.
-    # 새로운 마이그레이션 방식으로 정리하기 전까지 사용한다.
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-
-        await connection.execute(text(
-            "ALTER TABLE kbo_official_season_pitchers "
-            "ADD COLUMN IF NOT EXISTS season_type "
-            "VARCHAR(16) NOT NULL DEFAULT 'REGULAR'"
-        ))
-
-        await connection.execute(text(
-            "ALTER TABLE kbo_official_season_pitchers "
-            "DROP CONSTRAINT IF EXISTS uq_kbo_official_season_pitcher"
-        ))
-
-        await connection.execute(text(
-            "ALTER TABLE kbo_official_season_pitchers "
-            "ADD CONSTRAINT uq_kbo_official_season_pitcher "
-            "UNIQUE (season, season_type, pitcher_id, team_code)"
-        ))
-
-        for column, kind in (
-            ("batters_faced", "INTEGER"),
-            ("k_pct", "DOUBLE PRECISION"),
-            ("bb_pct", "DOUBLE PRECISION"),
-            ("k_minus_bb_pct", "DOUBLE PRECISION"),
-        ):
-            await connection.execute(text(
-                "ALTER TABLE kbo_official_season_pitchers "
-                f"ADD COLUMN IF NOT EXISTS {column} {kind}"
-            ))
-
-
 async def main() -> None:
     parser = argparse.ArgumentParser(
         description="KBO 공식 투수 기록을 검증하고 DB에 적재합니다."
@@ -221,11 +182,6 @@ async def main() -> None:
     if not args.apply:
         print("미리보기 모드: DB는 변경하지 않았습니다.")
         return
-
-    # 기존 직접 수집 경로만 기존 스키마 보정 동작을 유지한다.
-    # JSON Import는 이미 존재하는 테이블에만 데이터를 반영한다.
-    if not args.from_json:
-        await prepare_legacy_schema()
 
     async with AsyncSessionLocal() as db:
         count = await import_official_pitchers(

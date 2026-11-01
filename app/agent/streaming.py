@@ -10,12 +10,46 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.context import AgentContext, build_conversation_input
 from app.agent.metrics import AgentMetrics
-from app.agent.service import MAX_TOOL_ROUNDS, SYSTEM_PROMPT
-from app.agent.tool_definitions import AGENT_TOOLS
+from app.agent.prompt import MAX_TOOL_ROUNDS, SYSTEM_PROMPT
+from app.agent.tool_definitions import (
+    AGENT_TOOLS,
+    FINALIZE_ANALYSIS_TOOL_NAME,
+)
 from app.core.config import settings
 from app.tools.registry import execute_tool
 
 logger = logging.getLogger(__name__)
+
+
+def record_response_usage(metrics: AgentMetrics, response: Any) -> None:
+    usage = getattr(response, "usage", None)
+    metrics.record_llm_call(
+        input_tokens=(usage.input_tokens if usage is not None else None),
+        output_tokens=(usage.output_tokens if usage is not None else None),
+    )
+
+
+def comparison_event(result: dict[str, Any]) -> dict[str, Any]:
+    comparison = result["data"]
+    return {
+        "type": "bullpen_comparison",
+        "team_code": comparison["team_code"],
+        "as_of_date": comparison["as_of_date"],
+        "availability_verified": False,
+        "candidates": [
+            {
+                "pitcher_id": row["pitcher_id"],
+                "pitcher_name": row["pitcher_name"],
+                "k_minus_bb_pct": row["k_minus_bb_pct"],
+                "batters_faced": row["batters_faced"],
+                "pitches_last_3_days": row["pitches_last_3_days"],
+                "consecutive_days": row["consecutive_days"],
+                "workload_status": row["workload_status"],
+            }
+            for row in comparison["ranking"]
+        ],
+        "withheld": comparison["withheld"],
+    }
 
 
 async def stream_agent(
@@ -25,14 +59,13 @@ async def stream_agent(
     history: list[dict[str, str]] | None = None,
     context: AgentContext | None = None,
 ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
-    # 과거 대화는 DB에서 읽은 메시지만 사용한다.
     conversation: list[Any] = build_conversation_input(
         message=message,
         history=history,
     )
-
     metrics = AgentMetrics()
     answer_started = False
+    final_round = MAX_TOOL_ROUNDS + 1
 
     yield "started", {
         "run_id": metrics.run_id,
@@ -40,118 +73,56 @@ async def stream_agent(
     }
 
     try:
-        for round_number in range(1, MAX_TOOL_ROUNDS + 2):
-            final_round = round_number > MAX_TOOL_ROUNDS
-
-            stream = await client.responses.create(
+        for round_number in range(1, MAX_TOOL_ROUNDS + 1):
+            response = await client.responses.create(
                 model=settings.openai_model,
                 instructions=SYSTEM_PROMPT,
                 input=conversation,
                 tools=AGENT_TOOLS,
-                tool_choice="none" if final_round else "auto",
+                tool_choice="required",
                 parallel_tool_calls=False,
-                max_output_tokens=2048,
+                max_output_tokens=1024,
                 store=False,
-                stream=True,
             )
-
-            completed_response = None
-            round_answer = False
-
-            async for event in stream:
-                if event.type == "response.output_text.delta":
-                    round_answer = True
-                    answer_started = True
-
-                    yield "answer_delta", {
-                        "delta": event.delta,
-                    }
-
-                elif event.type == "response.completed":
-                    completed_response = event.response
-                    usage = getattr(event.response, "usage", None)
-
-                    metrics.record_llm_call(
-                        input_tokens=(
-                            usage.input_tokens
-                            if usage is not None
-                            else None
-                        ),
-                        output_tokens=(
-                            usage.output_tokens
-                            if usage is not None
-                            else None
-                        ),
-                    )
-
-                elif event.type in (
-                    "response.failed",
-                    "response.incomplete",
-                    "error",
-                ):
-                    raise RuntimeError(
-                        "모델 응답이 정상 완료되지 않았습니다: "
-                        f"{event.type}"
-                    )
-
-            if completed_response is None:
-                raise RuntimeError(
-                    "모델 응답 완료 이벤트를 받지 못했습니다."
-                )
-
-            # Function Call 정보를 다음 LLM 요청에도 유지한다.
-            conversation.extend(
-                item.model_dump(exclude_none=True)
-                for item in completed_response.output
-            )
+            record_response_usage(metrics, response)
 
             tool_calls = [
-                item
-                for item in completed_response.output
+                item for item in response.output
                 if item.type == "function_call"
             ]
-
             if not tool_calls:
-                if not round_answer:
-                    raise RuntimeError(
-                        "모델이 답변을 생성하지 않았습니다."
-                    )
-
-                summary = metrics.snapshot()
-
-                logger.info(
-                    "Agent 실행 완료 run_id=%s duration_ms=%s "
-                    "llm_calls=%s tool_count=%s",
-                    summary["run_id"],
-                    summary["duration_ms"],
-                    summary["llm_calls"],
-                    summary["tool_count"],
+                raise RuntimeError(
+                    "계획 단계에서 Tool 호출을 생성하지 않았습니다."
                 )
 
-                yield "completed", {
-                    **summary,
-                    "rounds": round_number,
-                }
-                return
+            conversation.extend(
+                item.model_dump(exclude_none=True)
+                for item in tool_calls
+            )
+            finalize_requested = False
 
             for tool_call in tool_calls:
+                if tool_call.name == FINALIZE_ANALYSIS_TOOL_NAME:
+                    conversation.append({
+                        "type": "function_call_output",
+                        "call_id": tool_call.call_id,
+                        "output": json.dumps({"ok": True}),
+                    })
+                    finalize_requested = True
+                    continue
+
                 yield "tool_start", {
                     "tool": tool_call.name,
                     "round": round_number,
                 }
-
                 tool_started_at = perf_counter()
 
                 try:
-                    arguments = json.loads(
-                        tool_call.arguments
-                    )
-
+                    arguments = json.loads(tool_call.arguments)
                     if not isinstance(arguments, dict):
                         raise ValueError(
                             "Tool 인자는 JSON 객체여야 합니다."
                         )
-
                     result = await asyncio.wait_for(
                         execute_tool(
                             session=session,
@@ -161,7 +132,6 @@ async def stream_agent(
                         ),
                         timeout=10.0,
                     )
-
                 except (ValueError, json.JSONDecodeError):
                     result = {
                         "ok": False,
@@ -170,7 +140,6 @@ async def stream_agent(
                             "message": "Tool 입력이 올바르지 않습니다.",
                         },
                     }
-
                 except TimeoutError:
                     result = {
                         "ok": False,
@@ -179,13 +148,9 @@ async def stream_agent(
                             "message": "Tool 실행 시간이 초과됐습니다.",
                         },
                     }
-
                     await session.rollback()
 
-                duration_ms = (
-                    perf_counter() - tool_started_at
-                ) * 1000
-
+                duration_ms = (perf_counter() - tool_started_at) * 1000
                 metrics.record_tool(
                     name=tool_call.name,
                     duration_ms=duration_ms,
@@ -199,63 +164,81 @@ async def stream_agent(
                     "duration_ms": round(duration_ms, 2),
                 }
 
-                # 모델이 만든 설명문과 별개로 DB 기반 후보 비교 결과를
-                # 구조화해서 전달한다. 클라이언트는 이 값을 파싱하지 않고
-                # 그대로 비교 카드에 사용한다.
                 if (
                     tool_call.name == "compare_bullpen_candidates"
                     and result["ok"]
                 ):
-                    comparison = result["data"]
-                    yield "analysis_result", {
-                        "type": "bullpen_comparison",
-                        "team_code": comparison["team_code"],
-                        "as_of_date": comparison["as_of_date"],
-                        "availability_verified": False,
-                        "candidates": [
-                            {
-                                "pitcher_id": row["pitcher_id"],
-                                "pitcher_name": row["pitcher_name"],
-                                "k_minus_bb_pct": row["k_minus_bb_pct"],
-                                "batters_faced": row["batters_faced"],
-                                "pitches_last_3_days": row[
-                                    "pitches_last_3_days"
-                                ],
-                                "consecutive_days": row[
-                                    "consecutive_days"
-                                ],
-                                "workload_status": row["workload_status"],
-                            }
-                            for row in comparison["ranking"]
-                        ],
-                        "withheld": comparison["withheld"],
-                    }
+                    yield "analysis_result", comparison_event(result)
 
-                conversation.append(
-                    {
-                        "type": "function_call_output",
-                        "call_id": tool_call.call_id,
-                        "output": json.dumps(
-                            result,
-                            ensure_ascii=False,
-                        ),
-                    }
+                conversation.append({
+                    "type": "function_call_output",
+                    "call_id": tool_call.call_id,
+                    "output": json.dumps(result, ensure_ascii=False),
+                })
+
+            if finalize_requested:
+                final_round = round_number + 1
+                break
+
+        final_stream = await client.responses.create(
+            model=settings.openai_model,
+            instructions=SYSTEM_PROMPT,
+            input=conversation,
+            tools=AGENT_TOOLS,
+            tool_choice="none",
+            parallel_tool_calls=False,
+            max_output_tokens=2048,
+            store=False,
+            stream=True,
+        )
+        completed_response = None
+
+        async for event in final_stream:
+            if event.type == "response.output_text.delta":
+                answer_started = True
+                yield "answer_delta", {"delta": event.delta}
+            elif event.type == "response.completed":
+                completed_response = event.response
+                record_response_usage(metrics, event.response)
+            elif event.type in (
+                "response.failed",
+                "response.incomplete",
+                "error",
+            ):
+                raise RuntimeError(
+                    "모델 응답이 정상 완료되지 않았습니다: "
+                    f"{event.type}"
                 )
 
-        raise RuntimeError(
-            "Agent 최대 실행 단계를 초과했습니다."
+        if completed_response is None:
+            raise RuntimeError(
+                "모델 응답 완료 이벤트를 받지 못했습니다."
+            )
+        if not answer_started:
+            raise RuntimeError("모델이 답변을 생성하지 않았습니다.")
+
+        summary = metrics.snapshot()
+        logger.info(
+            "Agent 실행 완료 run_id=%s duration_ms=%s "
+            "llm_calls=%s tool_count=%s",
+            summary["run_id"],
+            summary["duration_ms"],
+            summary["llm_calls"],
+            summary["tool_count"],
         )
+        yield "completed", {
+            **summary,
+            "rounds": final_round,
+        }
 
     except asyncio.CancelledError:
         logger.info("Agent 스트리밍 요청 취소")
         raise
-
     except (OpenAIError, RuntimeError):
         logger.exception(
             "Agent 스트리밍 실패 run_id=%s",
             metrics.run_id,
         )
-
         yield "error", {
             **metrics.snapshot(),
             "code": "AGENT_EXECUTION_FAILED",

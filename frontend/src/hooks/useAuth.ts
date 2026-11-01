@@ -1,6 +1,6 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, clearToken, getToken, setToken, type User } from "../api/client";
+import { api, ApiError, clearToken, getToken, setToken, type TeamCode, type User } from "../api/client";
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
@@ -21,8 +21,8 @@ export function useAuth() {
     setToken(response.access_token);
     try { setUser(await api.me()); } catch (error) { logout(); throw error; }
   }, [logout]);
-  const register = useCallback(async (username: string, password: string, teamCode: string, role: string) => {
-    await api.register(username, password, teamCode, role);
+  const register = useCallback(async (username: string, password: string, teamCode: TeamCode) => {
+    await api.register(username, password, teamCode);
     await login(username, password);
   }, [login]);
   return { user, checking, login, register, logout, refresh };

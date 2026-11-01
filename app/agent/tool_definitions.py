@@ -1,4 +1,20 @@
-# LLM에 노출하는 Tool 목록이다.
+FINALIZE_ANALYSIS_TOOL_NAME = "finalize_analysis"
+
+FINALIZE_ANALYSIS_DEFINITION = {
+    "type": "function",
+    "name": FINALIZE_ANALYSIS_TOOL_NAME,
+    "description": (
+        "필요한 조회와 계산이 완료되었거나 추가 Tool이 "
+        "필요하지 않을 때 최종 답변 생성 단계로 전환한다."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": False,
+    },
+    "strict": True,
+}
 
 GET_BULLPEN_WORKLOAD_DEFINITION = {
     "type": "function",
@@ -61,6 +77,7 @@ COMPARE_BULLPEN_CANDIDATES_DEFINITION = {
 }
 
 AGENT_TOOLS = [
+    FINALIZE_ANALYSIS_DEFINITION,
     {
         "type": "function",
         "name": "get_game_state",

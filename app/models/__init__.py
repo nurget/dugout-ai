@@ -6,6 +6,7 @@ from app.models.kbo import KboTeam, KboGame
 from app.models.kbo_season_pitcher import KboSeasonPitcher
 from app.models.kbo_official_season_pitcher import KboOfficialSeasonPitcher
 from app.models.kbo_pitcher_appearance import KboPitcherAppearance
+from app.models.kbo_pitching import KboPitchingAppearance
 from app.models.user import User
 from app.models.conversation_owner import ConversationOwner
 
@@ -22,6 +23,7 @@ __all__ = [
     "KboSeasonPitcher",
     "KboOfficialSeasonPitcher",
     "KboPitcherAppearance",
+    "KboPitchingAppearance",
     "User",
-    "ConversationOwner"
+    "ConversationOwner",
 ]
