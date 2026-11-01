@@ -10,11 +10,14 @@ class GameStateInput(BaseModel):
 
 
 class PitcherStatusInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     player_id: int = Field(gt=0)
 
 
 class BullpenOptionsInput(BaseModel):
-    team: str = Field(min_length=1, max_length=50)
+    model_config = ConfigDict(extra="forbid")
+
     exclude_player_id: int | None = Field(
         default=None,
         gt=0,
@@ -27,16 +30,18 @@ class PitchingDecisionInput(BaseModel):
     runner_on_first: bool = False
 
 class SearchSeasonPitchersInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     season: int = Field(ge=1982, le=2100)
     name: str = Field(min_length=1)
-    team: str | None = None
 
 
 class ComparePitchersInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     season: int = Field(ge=1982, le=2100)
     first_pitcher_id: str = Field(min_length=1)
     second_pitcher_id: str = Field(min_length=1)
-    team: str | None = None
 
 class BullpenWorkloadInput(BaseModel):
     model_config = ConfigDict(extra="forbid")

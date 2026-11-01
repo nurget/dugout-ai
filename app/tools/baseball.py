@@ -52,8 +52,14 @@ async def get_game_state(
 async def get_pitcher_status(
     session: AsyncSession,
     player_id: int,
+    authenticated_team_code: str,
 ) -> dict:
-    player = await session.get(Player, player_id)
+    player = await session.scalar(
+        select(Player).where(
+            Player.id == player_id,
+            Player.team == authenticated_team_code,
+        )
+    )
 
     if player is None:
         raise ToolNotFoundError("선수를 찾을 수 없습니다.")

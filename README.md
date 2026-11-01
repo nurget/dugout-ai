@@ -4,6 +4,8 @@
 
 이 서비스는 교체 성공 확률이나 승률을 예측하지 않습니다. 확인된 데이터, 규칙 기반 판단, 현재 확인할 수 없는 정보를 구분해 제시합니다.
 
+처음 프로젝트를 받은 분은 [DUGOUT AI 처음부터 실행하기](docs/getting-started.md)를 따라 하면 환경 준비부터 데모 확인, 전체 테스트까지 순서대로 실행할 수 있습니다.
+
 ![DUGOUT AI 메인 화면](docs/images/overview.png)
 
 ## 핵심 기능
@@ -27,7 +29,7 @@
 | Frontend | React, TypeScript, Vite |
 | Test | pytest, pytest-asyncio, httpx, ESLint |
 
-시스템 구조, Agent 실행 흐름, DB ERD, 기술 선택의 장단점은 [설계 문서](docs/design.md)에 정리했습니다.
+시스템 구조, Agent 실행 흐름, DB ERD, 기술 선택의 장단점은 [설계 문서](docs/design.md)에 정리했습니다. 실행 절차와 소스코드 진입점은 [실행 안내서](docs/getting-started.md)에서 확인할 수 있습니다.
 
 ## 프로젝트 구조
 
@@ -85,7 +87,7 @@ uv run uvicorn app.main:app --reload
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 

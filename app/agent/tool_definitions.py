@@ -106,7 +106,7 @@ AGENT_TOOLS = [
         "type": "function",
         "name": "get_pitcher_status",
         "description": (
-            "투수의 기본 정보를 조회한다. "
+            "로그인한 구단 투수의 기본 정보를 조회한다. "
             "최근 투구 기록이나 가용 여부는 제공하지 않는다."
         ),
         "parameters": {
@@ -126,22 +126,18 @@ AGENT_TOOLS = [
         "type": "function",
         "name": "get_bullpen_options",
         "description": (
-            "지정한 팀의 다른 투수 명단을 조회한다. "
+            "로그인한 구단의 다른 투수 명단을 조회한다. "
             "실제 불펜 등판 가능 여부는 확인할 수 없다."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "team": {
-                    "type": "string",
-                    "description": "팀 이름. 예: KIA",
-                },
                 "exclude_player_id": {
                     "type": ["integer", "null"],
                     "description": "후보에서 제외할 투수 ID 또는 null",
                 },
             },
-            "required": ["team", "exclude_player_id"],
+            "required": ["exclude_player_id"],
             "additionalProperties": False,
         },
         "strict": True,
@@ -253,9 +249,9 @@ AGENT_TOOLS = [
         "type": "function",
         "name": "search_season_pitchers",
         "description": (
-            "실제 KBO 시즌 투수 기록에서 이름으로 선수를 검색한다. "
+            "로그인한 구단의 KBO 시즌 투수 기록에서 이름으로 선수를 검색한다. "
             "투수를 비교하기 전에 이 도구로 pitcher_id를 확인한다. "
-            "team은 검색 범위를 제한하는 선택 조건이다."
+            "검색 구단은 서버가 인증 정보로 제한한다."
         ),
         "parameters": {
             "type": "object",
@@ -268,15 +264,8 @@ AGENT_TOOLS = [
                     "type": "string",
                     "description": "검색할 투수 이름 또는 이름 일부",
                 },
-                "team": {
-                    "type": ["string", "null"],
-                    "description": (
-                        "검색할 팀 코드 또는 null. "
-                        "팀 코드는 데이터셋과 일치해야 한다."
-                    ),
-                },
             },
-            "required": ["season", "name", "team"],
+            "required": ["season", "name"],
             "additionalProperties": False,
         },
         "strict": True,
@@ -285,7 +274,7 @@ AGENT_TOOLS = [
         "type": "function",
         "name": "compare_pitchers",
         "description": (
-            "같은 시즌의 투수 두 명을 실제 집계 기록으로 비교한다. "
+            "로그인한 구단의 같은 시즌 투수 두 명을 실제 기록으로 비교한다. "
             "K%, BB%, K-BB% 등을 확인한다. "
             "반드시 먼저 search_season_pitchers로 각 투수의 ID를 확인한다. "
             "해당 기록만으로 승리 확률이나 교체 효과를 단정하지 않는다."
@@ -305,19 +294,11 @@ AGENT_TOOLS = [
                     "type": "string",
                     "description": "두 번째 투수 ID",
                 },
-                "team": {
-                    "type": ["string", "null"],
-                    "description": (
-                        "팀 범위 제한 또는 null. "
-                        "서로 다른 팀 투수를 비교할 때는 null."
-                    ),
-                },
             },
             "required": [
                 "season",
                 "first_pitcher_id",
                 "second_pitcher_id",
-                "team",
             ],
             "additionalProperties": False,
         },

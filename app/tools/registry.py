@@ -81,18 +81,27 @@ TOOL_REGISTRY = {
 # 새로운 Tool은 접근 정책을 명시하기 전까지 실행하지 않는다.
 PUBLIC_TOOLS = frozenset({
     "get_game_state",
-    "get_pitcher_status",
-    "get_bullpen_options",
     "simulate_pitching_decision",
     "calculate_re24",
-    "search_season_pitchers",
-    "compare_pitchers",
 })
 
 TEAM_SCOPED_TOOLS = frozenset({
+    "get_pitcher_status",
+    "get_bullpen_options",
+    "search_season_pitchers",
+    "compare_pitchers",
     "get_bullpen_workload",
     "compare_bullpen_candidates",
 })
+
+TEAM_ARGUMENT_BY_TOOL = {
+    "get_pitcher_status": "authenticated_team_code",
+    "get_bullpen_options": "team",
+    "search_season_pitchers": "team",
+    "compare_pitchers": "team",
+    "get_bullpen_workload": "authenticated_team_code",
+    "compare_bullpen_candidates": "authenticated_team_code",
+}
 
 def tool_error(code: str, message: str) -> dict[str, Any]:
     return {
@@ -143,9 +152,8 @@ async def execute_tool(
         kwargs = validated.model_dump()
 
         if is_team_scoped:
-            # 팀 정보는 모델이 생성한 인자가 아니라
-            # 서버가 검증한 인증 컨텍스트에서만 주입한다.
-            kwargs["authenticated_team_code"] = context.team_code
+            team_argument = TEAM_ARGUMENT_BY_TOOL[tool_name]
+            kwargs[team_argument] = context.team_code
 
         result = await handler(
             session,

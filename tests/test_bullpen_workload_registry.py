@@ -80,3 +80,54 @@ async def test_rejects_model_supplied_team_code():
 
     assert result["ok"] is False
     assert result["error"]["code"] == "INVALID_ARGUMENTS"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "team_argument"),
+    [
+        (
+            "get_bullpen_options",
+            {"exclude_player_id": None},
+            "team",
+        ),
+        (
+            "search_season_pitchers",
+            {"season": 2026, "name": "김"},
+            "team",
+        ),
+        (
+            "compare_pitchers",
+            {
+                "season": 2026,
+                "first_pitcher_id": "1",
+                "second_pitcher_id": "2",
+            },
+            "team",
+        ),
+    ],
+)
+async def test_player_tools_use_authenticated_team(
+    monkeypatch,
+    tool_name,
+    arguments,
+    team_argument,
+):
+    handler = AsyncMock(return_value={})
+    schema_class, _ = registry.TOOL_REGISTRY[tool_name]
+    monkeypatch.setitem(
+        registry.TOOL_REGISTRY,
+        tool_name,
+        (schema_class, handler),
+    )
+
+    result = await registry.execute_tool(
+        session=None,
+        tool_name=tool_name,
+        arguments=arguments,
+        context=SimpleNamespace(team_code="KIA"),
+    )
+
+    assert result["ok"] is True
+    called_kwargs = handler.await_args.kwargs
+    assert called_kwargs[team_argument] == "KIA"

@@ -1,4 +1,5 @@
 import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from app.tools.registry import execute_tool
@@ -22,6 +23,7 @@ async def test_invalid_arguments():
         session=None,
         tool_name="get_pitcher_status",
         arguments={"player_id": -1},
+        context=SimpleNamespace(team_code="KIA"),
     )
 
     assert result["ok"] is False
@@ -56,8 +58,25 @@ async def test_pitcher_tool_success(monkeypatch):
         session=None,
         tool_name="get_pitcher_status",
         arguments={"player_id": 1},
+        context=SimpleNamespace(team_code="KIA"),
     )
 
     assert result["ok"] is True
     assert result["data"]["player_id"] == 1
-    mock_handler.assert_awaited_once()
+    mock_handler.assert_awaited_once_with(
+        None,
+        player_id=1,
+        authenticated_team_code="KIA",
+    )
+
+
+@pytest.mark.asyncio
+async def test_pitcher_tool_requires_authenticated_team():
+    result = await execute_tool(
+        session=None,
+        tool_name="get_pitcher_status",
+        arguments={"player_id": 1},
+    )
+
+    assert result["ok"] is False
+    assert result["error"]["code"] == "FORBIDDEN"
