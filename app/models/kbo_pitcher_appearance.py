@@ -45,6 +45,11 @@ class KboPitcherAppearance(Base):
         String(120),
         nullable=False,
     )
+    
+    pitcher_id_source: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+    )
 
     batters_faced: Mapped[int | None] = mapped_column(Integer)
     pitches: Mapped[int | None] = mapped_column(Integer)
