@@ -27,6 +27,19 @@ TABLE_NAMES = (
     "kbo_pitcher_appearances",
 )
 
+TEAM_NAMES = {
+    "DOO": "두산 베어스",
+    "HAN": "한화 이글스",
+    "KIA": "KIA 타이거즈",
+    "KIW": "키움 히어로즈",
+    "KT": "KT 위즈",
+    "LG": "LG 트윈스",
+    "LOT": "롯데 자이언츠",
+    "NC": "NC 다이노스",
+    "SAM": "삼성 라이온즈",
+    "SSG": "SSG 랜더스",
+}
+
 OUTPUT_PATH = Path("data/demo/kia_2026.json")
 
 
@@ -35,7 +48,7 @@ def load_tables(connection):
 
     return {
         name: Table(name, metadata, autoload_with=connection)
-        for name in TABLE_NAMES
+        for name in ("kbo_teams", *TABLE_NAMES)
     }
 
 
@@ -135,6 +148,25 @@ def import_data(connection, payload):
         raise ValueError("지원하지 않는 데모 데이터입니다.")
 
     tables = load_tables(connection)
+
+    games = payload["tables"]["kbo_games"]
+    team_codes = {
+        row[field]
+        for row in games
+        for field in ("home_team_code", "away_team_code")
+    }
+    unknown_codes = team_codes - TEAM_NAMES.keys()
+    if unknown_codes:
+        raise ValueError(
+            f"알 수 없는 구단 코드: {sorted(unknown_codes)}"
+        )
+
+    for code in sorted(team_codes):
+        connection.execute(
+            pg_insert(tables["kbo_teams"])
+            .values(code=code, name=TEAM_NAMES[code])
+            .on_conflict_do_nothing()
+        )
 
     # 부모 경기부터 적재한 뒤 등판 기록을 적재한다.
     for name in TABLE_NAMES:
