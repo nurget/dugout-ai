@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
     "asyncpg>=0.32.0",
+    "beautifulsoup4>=4.15.0",
     "fastapi[standard]>=0.162.0",
     "openai>=3.41.0",
     "pwdlib[argon2]>=0.3.1",
@@ -11,6 +12,7 @@ dependencies = [
     "pydantic>=2",
     "pydantic-settings>=2.16.2",
     "pyjwt>=2.15.1",
+    "selenium>=4.52.0",
     "sqlalchemy[asyncio]>=2.0,<2.1",
 ]
 
