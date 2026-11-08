@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 
@@ -9,6 +10,8 @@ class AgentContext:
     user_id: str
     team_code: str
     role: str
+    as_of_date: date | None = None
+    data_snapshot_ids: dict[str, str | None] | None = None
 
 
 def build_conversation_input(

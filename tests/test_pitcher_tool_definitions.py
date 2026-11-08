@@ -47,12 +47,14 @@ def test_pitcher_tool_inputs_are_valid():
     search_input = SearchSeasonPitchersInput.model_validate({
         "season": 2026,
         "name": "김",
+        "as_of_date": "2026-06-30",
     })
 
     compare_input = ComparePitchersInput.model_validate({
         "season": 2026,
         "first_pitcher_id": "123",
         "second_pitcher_id": "456",
+        "as_of_date": "2026-06-30",
     })
 
     assert search_input.season == 2026

@@ -10,6 +10,7 @@ from app.services.kbo_official_pitching import (
     fetch_official_pitchers,
     import_official_pitchers,
 )
+from app.services.data_catalog import record_import_batch
 
 
 def load_pitchers_from_json(
@@ -184,11 +185,26 @@ async def main() -> None:
         return
 
     async with AsyncSessionLocal() as db:
-        count = await import_official_pitchers(
-            db,
-            rows,
-            season=args.season,
-        )
+        try:
+            count = await import_official_pitchers(
+                db,
+                rows,
+                season=args.season,
+            )
+        except Exception as error:
+            await db.rollback()
+            await record_import_batch(
+                db,
+                dataset="kbo_official_season_pitchers",
+                source_name="KBO_RECORDS_OFFICIAL",
+                season=args.season,
+                record_count=0,
+                status="FAILED",
+                error_message=f"{type(error).__name__}: {error}",
+                quality_summary={"attempted_records": len(rows), "validation": "FAILED"},
+            )
+            await db.commit()
+            raise
 
     print(f"DB 저장 완료: {count}명")
 

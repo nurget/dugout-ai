@@ -1,5 +1,5 @@
 
-from sqlalchemy import Integer, String, UniqueConstraint
+from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -49,6 +49,13 @@ class KboPitcherAppearance(Base):
     pitcher_id_source: Mapped[str | None] = mapped_column(
         String(32),
         nullable=True,
+    )
+
+    source_batch_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("data_import_batches.id"),
+        nullable=True,
+        index=True,
     )
 
     batters_faced: Mapped[int | None] = mapped_column(Integer)

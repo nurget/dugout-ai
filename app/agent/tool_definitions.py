@@ -46,8 +46,8 @@ COMPARE_BULLPEN_CANDIDATES_DEFINITION = {
     "type": "function",
     "name": "compare_bullpen_candidates",
     "description": (
-        "로그인한 KBO 구단의 투수 1~5명을 2026 정규시즌 "
-        "K-BB%, 표본 규모, 최근 3일 투구 부담으로 조건부 비교한다. "
+        "로그인한 KBO 구단의 투수 1~5명을 기준일 이전 정규시즌 "
+        "누적 K-BB%, 표본 규모, 최근 3일 투구 부담으로 조건부 비교한다. "
         "사용자가 선수 ID를 제공하지 않았다면 "
         "search_season_pitchers로 먼저 ID를 확인한다. "
         "당일 엔트리, 선발·구원 역할, 등판 가능 여부는 검증하지 않는다."
@@ -249,9 +249,10 @@ AGENT_TOOLS = [
         "type": "function",
         "name": "search_season_pitchers",
         "description": (
-            "로그인한 구단의 KBO 시즌 투수 기록에서 이름으로 선수를 검색한다. "
+            "로그인한 구단에서 기준일 이전 정규시즌 등판으로 재계산한 "
+            "누적 투수 기록에서 이름으로 선수를 검색한다. "
             "투수를 비교하기 전에 이 도구로 pitcher_id를 확인한다. "
-            "검색 구단은 서버가 인증 정보로 제한한다."
+            "기준일 당일 경기는 모두 제외하며, 검색 구단은 서버가 인증 정보로 제한한다."
         ),
         "parameters": {
             "type": "object",
@@ -264,8 +265,12 @@ AGENT_TOOLS = [
                     "type": "string",
                     "description": "검색할 투수 이름 또는 이름 일부",
                 },
+                "as_of_date": {
+                    "type": "string",
+                    "description": "누적 기준일 YYYY-MM-DD. 해당 날짜 경기는 제외합니다.",
+                },
             },
-            "required": ["season", "name"],
+            "required": ["season", "name", "as_of_date"],
             "additionalProperties": False,
         },
         "strict": True,
@@ -274,10 +279,10 @@ AGENT_TOOLS = [
         "type": "function",
         "name": "compare_pitchers",
         "description": (
-            "로그인한 구단의 같은 시즌 투수 두 명을 실제 기록으로 비교한다. "
+            "로그인한 구단의 두 투수를 기준일 이전 누적 등판 기록으로 비교한다. "
             "K%, BB%, K-BB% 등을 확인한다. "
             "반드시 먼저 search_season_pitchers로 각 투수의 ID를 확인한다. "
-            "해당 기록만으로 승리 확률이나 교체 효과를 단정하지 않는다."
+            "기준일 당일 경기는 전부 제외하며, 기록만으로 승리 확률이나 교체 효과를 단정하지 않는다."
         ),
         "parameters": {
             "type": "object",
@@ -294,11 +299,16 @@ AGENT_TOOLS = [
                     "type": "string",
                     "description": "두 번째 투수 ID",
                 },
+                "as_of_date": {
+                    "type": "string",
+                    "description": "누적 기준일 YYYY-MM-DD. 해당 날짜 경기는 제외합니다.",
+                },
             },
             "required": [
                 "season",
                 "first_pitcher_id",
                 "second_pitcher_id",
+                "as_of_date",
             ],
             "additionalProperties": False,
         },

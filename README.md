@@ -12,6 +12,8 @@
 
 - OpenAI Responses API와 strict function schema를 이용한 다단계 Tool Calling
 - 실제 경기 상태, 시즌 투수 지표, 최근 3일 투구 부담 조회
+- 기준일 이전 종료 경기만 사용한 투수 누적 지표와 불펜 후보 비교
+- KBO 데이터 적재 상태와 출처 확인
 - 투구 수·이닝·주자 상황에 대한 규칙 기반 교체 검토
 - SSE를 통한 Tool 실행 상태와 답변 텍스트 스트리밍
 - JWT 인증, 사용자별 대화 접근 제어, 대화 저장·복원
@@ -29,7 +31,7 @@
 | Frontend | React, TypeScript, Vite |
 | Test | pytest, pytest-asyncio, httpx, ESLint |
 
-시스템 구조, Agent 실행 흐름, DB ERD, 기술 선택의 장단점은 [설계 문서](docs/design.md)에 정리했습니다. 실행 절차와 소스코드 진입점은 [실행 안내서](docs/getting-started.md)에서 확인할 수 있습니다.
+개발 환경 준비와 데모 실행 방법은 [실행 안내서](docs/getting-started.md)에서 확인할 수 있습니다.
 
 ## 프로젝트 구조
 
@@ -46,7 +48,7 @@ dugout-ai/
 │   ├── simulation/     # 투수 교체 규칙 평가
 │   └── tools/          # LLM Tool schema, Registry, 실행 적응 계층
 ├── data/demo/              # KIA 2026 로컬 데모 데이터
-├── docs/                   # 아키텍처 이미지와 설계 문서
+├── docs/                   # 사용자 안내와 아키텍처 이미지
 ├── frontend/               # React 대시보드와 SSE 클라이언트
 ├── migrations/             # Alembic 버전 관리형 DB 스키마
 ├── scripts/                # 데모 복원, 계정 생성, KBO 적재 스크립트
@@ -113,7 +115,8 @@ uv run python -m scripts.create_demo_user --username demo --team KIA --role COAC
 | `GET` | `/api/auth/me` | 현재 사용자 조회 |
 | `GET` | `/api/teams/me` | 인증 구단·역할 조회 |
 | `GET` | `/api/teams/me/games` | 인증 구단 경기 조회 |
-| `GET` | `/api/teams/me/pitchers` | 인증 구단 투수 지표 조회 |
+| `GET` | `/api/teams/me/pitchers` | 인증 구단 투수 지표 조회 (`as_of_date` 입력 시 과거 누적 재계산) |
+| `GET` | `/api/teams/me/data-status` | KBO 데이터셋 출처·적재·품질 상태 조회 |
 | `POST` | `/api/agent/chat/stream` | JWT, 메시지, 선택적 대화 ID를 받아 SSE 응답 |
 | `GET` | `/api/agent/conversations/{id}/messages` | 소유한 대화 복원 |
 | `GET` | `/api/agent/runs/{id}` | Agent·Tool 실행 이력 조회 |
@@ -163,13 +166,15 @@ uv run alembic upgrade head
 uv run alembic downgrade -1
 ```
 
-이전에 `create_all()`로 만든 DB를 이어서 사용할 때는 먼저 현재 테이블이 초기 revision과 일치하는지 검증한 뒤 `uv run alembic stamp head`를 한 번만 실행합니다. 검증 없이 stamp하면 실제 스키마 차이가 숨겨질 수 있습니다.
+이전에 `create_all()`로 만든 DB를 이어서 사용할 때는 현재 테이블이 초기 revision과 일치하는지 먼저 검증합니다. 일치하면 `uv run alembic stamp 20261101_0001`로 초기 revision만 표시한 뒤 `uv run alembic upgrade head`를 실행합니다. `stamp head`를 하면 새 migration이 건너뛰어질 수 있으므로 사용하지 마세요. 검증 없이 stamp하면 실제 스키마 차이가 숨겨질 수 있습니다.
 
 ## 데이터와 안전 범위
 
-- 번들 데모는 KIA 2026 정규시즌 스냅샷이며 실시간 KBO 연동이 아닙니다.
+- 번들 데모는 KIA 2026 정규시즌 데이터이며 실시간 KBO 연동이 아닙니다.
+- `as_of_date` 분석은 적재된 경기별 기록을 기준일 이전 종료 경기로 다시 집계합니다. 날짜 안의 경기 순서는 구분하지 않습니다.
+- 데이터의 출처와 적재 상태를 제공하지만, 이는 데이터의 정확성이나 최신성을 보증하지 않습니다.
 - `TEAM_NAME_UNIQUE`는 구단과 이름을 기준으로 연결한 잠정 ID입니다. 동명이인이나 매핑 근거가 불충분하면 비교에서 제외합니다.
 - `REVIEW_REQUIRED`는 최근 투구 부담을 추가 확인해야 한다는 신호이며 등판 불가 판정이 아닙니다.
 - `NO_HIGH_LOAD_FLAG`는 조회한 기록에서 높은 부담 신호가 없다는 뜻이며 출전 가능을 보장하지 않습니다.
 - 공개 가입은 기본값이 꺼져 있고, 켜더라도 클라이언트가 역할을 선택할 수 없으며 `COACH`만 생성됩니다. 다만 데모 가입에서는 구단을 직접 고르므로 운영 계정은 관리자 프로비저닝 또는 조직 초대 흐름이 필요합니다.
-- 운영 배포 전에는 rate limit, SSE heartbeat, Agent 회귀 평가셋을 추가해야 합니다.
+- 불펜 비교는 확인 가능한 데이터에 기반한 참고 정보이며, 교체 성공 확률이나 실제 컨디션을 예측하지 않습니다.

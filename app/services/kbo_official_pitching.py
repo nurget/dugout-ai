@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.kbo_official_season_pitcher import KboOfficialSeasonPitcher
+from app.services.data_catalog import record_import_batch
 
 KBO_PITCHER_URL = "https://www.koreabaseball.com/Record/Player/PitcherBasic/Basic1.aspx"
 KBO_PITCHER_DETAIL_URL = "https://www.koreabaseball.com/Record/Player/PitcherBasic/Basic2.aspx"
@@ -139,11 +140,41 @@ def fetch_official_pitchers(season: int = 2026, include_postseason: bool = False
     return result
 
 
-async def import_official_pitchers(db: AsyncSession, rows: list[dict], *, season: int) -> int:
+async def import_official_pitchers(
+    db: AsyncSession,
+    rows: list[dict],
+    *,
+    season: int,
+    source_name: str = "KBO_RECORDS_OFFICIAL",
+    identity_verified: bool = True,
+) -> int:
     for row in rows:
         existing = await db.scalar(select(KboOfficialSeasonPitcher).where(KboOfficialSeasonPitcher.season == season, KboOfficialSeasonPitcher.season_type == row["season_type"], KboOfficialSeasonPitcher.pitcher_id == row["pitcher_id"], KboOfficialSeasonPitcher.team_code == row["team_code"]))
         if existing is None: db.add(KboOfficialSeasonPitcher(season=season, **row))
         else:
             for key, value in row.items(): setattr(existing, key, value)
+    season_types = sorted({row["season_type"] for row in rows})
+    for season_type in season_types:
+        season_rows = [row for row in rows if row["season_type"] == season_type]
+        await record_import_batch(
+            db,
+            dataset="kbo_official_season_pitchers",
+            source_name=source_name,
+            season=season,
+            season_type=season_type,
+            record_count=len(season_rows),
+            quality_summary={
+                "team_count": len({row["team_code"] for row in season_rows}),
+                "unique_pitcher_ids": len({row["pitcher_id"] for row in season_rows}),
+                "rows_without_batters_faced": sum(row.get("batters_faced") is None for row in season_rows),
+                "identity_verified": identity_verified,
+                "validation": "PASSED" if season_rows else "FAILED",
+            },
+            status=(
+                "FAILED" if not season_rows
+                else "PARTIAL" if not identity_verified
+                else "SUCCESS"
+            ),
+        )
     await db.commit()
     return len(rows)

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import AsyncSessionLocal
 from app.models.kbo import KboGame
 from app.models.kbo_pitcher_appearance import KboPitcherAppearance
+from app.services.data_catalog import record_import_batch
 
 
 URL = "https://www.koreabaseball.com/ws/Schedule.asmx/GetBoxScoreScroll"
@@ -173,9 +174,33 @@ async def save_appearances(
             )
         )
 
+        game = await db.get(KboGame, game_pk)
+        batch = await record_import_batch(
+            db,
+            dataset="kbo_pitcher_appearances",
+            source_name="KBO_OFFICIAL_BOXSCORE",
+            season=game.season if game else None,
+            season_type=game.season_type if game else "REGULAR",
+            record_count=len(rows),
+            quality_summary={
+                "game_pk": game_pk,
+                "team_count": len(teams),
+                "verified_pitcher_ids": sum(row.get("pitcher_id_source") == "OFFICIAL_VERIFIED" for row in rows),
+                "tentative_pitcher_ids": sum(row.get("pitcher_id_source") == "TEAM_NAME_UNIQUE" for row in rows),
+                "unmapped_pitcher_ids": sum(not row.get("pitcher_id") for row in rows),
+                "null_pitch_counts": sum(row.get("pitches") is None for row in rows),
+                "validation": "PASSED",
+            },
+            status=(
+                "PARTIAL"
+                if any(row.get("pitcher_id_source") != "OFFICIAL_VERIFIED" for row in rows)
+                else "SUCCESS"
+            ),
+        )
         db.add_all([
             KboPitcherAppearance(
                 game_pk=game_pk,
+                source_batch_id=batch.id,
                 **row,
             )
             for row in rows
@@ -343,6 +368,21 @@ async def main():
             except Exception as error:
                 await db.rollback()
                 failed.append(game_pk)
+                await record_import_batch(
+                    db,
+                    dataset="kbo_pitcher_appearances",
+                    source_name="KBO_OFFICIAL_BOXSCORE",
+                    season=args.season,
+                    season_type="REGULAR",
+                    record_count=0,
+                    status="FAILED",
+                    error_message=f"{type(error).__name__}: {error}",
+                    quality_summary={
+                        "game_pk": game_pk,
+                        "validation": "FAILED",
+                    },
+                )
+                await db.commit()
 
                 print(
                     f"[FAIL] {game_pk}: "

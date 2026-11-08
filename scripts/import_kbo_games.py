@@ -10,6 +10,7 @@ from pathlib import Path
 
 from app.db.session import AsyncSessionLocal
 from app.services.kbo_import import normalize_dataset, import_games
+from app.services.data_catalog import record_import_batch
 
 
 async def main(path: Path, apply: bool) -> None:
@@ -31,8 +32,22 @@ async def main(path: Path, apply: bool) -> None:
         try:
             count = await import_games(db, games, source_name=path.name)
             await db.commit()
-        except Exception:
+        except Exception as error:
             await db.rollback()
+            await record_import_batch(
+                db,
+                dataset="kbo_games",
+                source_name=path.name,
+                season=season,
+                record_count=0,
+                status="FAILED",
+                error_message=f"{type(error).__name__}: {error}",
+                quality_summary={
+                    "attempted_records": len(games),
+                    "validation": "FAILED",
+                },
+            )
+            await db.commit()
             raise
     print(f"저장 완료: {count}경기 (기존 gamePk는 갱신)")
 

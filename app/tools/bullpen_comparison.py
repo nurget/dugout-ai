@@ -63,7 +63,7 @@ async def compare_bullpen_candidates_tool(
     result["limitations"] = [
         *result.get("limitations", []),
         "후보는 비교 대상으로 지정되었을 뿐 당일 엔트리와 가용성은 검증되지 않았습니다.",
-        "K-BB%는 2026년 전체 정규시즌 성적이며 과거 기준일 당시 성적이 아닙니다.",
+        "시즌 누적 K-BB%는 요청 기준일 이전 기록으로 재계산합니다.",
         "TEAM_NAME_UNIQUE 선수 ID는 팀과 이름에 근거한 잠정 매핑입니다.",
     ]
 

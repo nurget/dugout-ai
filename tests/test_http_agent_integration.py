@@ -1,5 +1,7 @@
 import json
+from datetime import datetime, timedelta
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -87,6 +89,11 @@ async def test_authenticated_sse_persists_messages_and_run(
             transport=transport,
             base_url="http://test",
         ) as client:
+            unauthorized_status = await client.get(
+                "/api/teams/me/data-status"
+            )
+            assert unauthorized_status.status_code == 401
+
             register = await client.post("/api/auth/register", json={
                 "username": "integration-coach",
                 "password": "strong-password",
@@ -104,10 +111,48 @@ async def test_authenticated_sse_persists_messages_and_run(
                 "Authorization": f"Bearer {login.json()['access_token']}"
             }
 
+            future_date = (
+                datetime.now(ZoneInfo("Asia/Seoul")).date()
+                + timedelta(days=1)
+            )
+            future_analysis = await client.post(
+                "/api/agent/chat/stream",
+                headers=headers,
+                json={
+                    "message": "미래 경기를 분석해줘.",
+                    "as_of_date": future_date.isoformat(),
+                },
+            )
+            assert future_analysis.status_code == 422
+
+            data_status = await client.get(
+                "/api/teams/me/data-status",
+                headers=headers,
+            )
+            assert data_status.status_code == 200
+            assert data_status.json()["scope"] == "TEAM_ACCOUNT_DATA_OPERATIONS"
+            assert all(
+                row["status"] == "UNTRACKED"
+                for row in data_status.json()["data"]
+            )
+
+            as_of_pitchers = await client.get(
+                "/api/teams/me/pitchers",
+                headers=headers,
+                params={"season": 2026, "as_of_date": "2026-11-07"},
+            )
+            assert as_of_pitchers.status_code == 200
+            assert as_of_pitchers.json()["as_of_date"] == "2026-11-07"
+            assert as_of_pitchers.json()["coverage"]["status"] == "NO_DATA"
+            assert as_of_pitchers.json()["provenance"]["status"] == "UNKNOWN"
+
             response = await client.post(
                 "/api/agent/chat/stream",
                 headers=headers,
-                json={"message": "경기 상황을 분석해줘."},
+                json={
+                    "message": "경기 상황을 분석해줘.",
+                    "as_of_date": "2026-11-07",
+                },
             )
             assert response.status_code == 200
             events = parse_sse(response.text)
@@ -136,6 +181,13 @@ async def test_authenticated_sse_persists_messages_and_run(
             )
             assert run.status_code == 200
             assert run.json()["status"] == "COMPLETED"
+            assert run.json()["as_of_date"] == "2026-11-07"
+            assert run.json()["data_snapshot_ids"] == {
+                "kbo_games": None,
+                "kbo_pitcher_appearances": None,
+                "kbo_official_season_pitchers": None,
+                "kbo_pbp_pitching": None,
+            }
             assert run.json()["tools"][0]["name"] == "get_game_state"
     finally:
         app.dependency_overrides.pop(get_db, None)

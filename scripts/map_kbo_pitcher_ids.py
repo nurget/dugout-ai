@@ -11,6 +11,7 @@ from sqlalchemy import select, update, text
 from app.db.session import AsyncSessionLocal
 from app.models.kbo import KboGame
 from app.models.kbo_pitcher_appearance import KboPitcherAppearance
+from app.services.data_catalog import record_import_batch
 from app.models.kbo_official_season_pitcher import (
     KboOfficialSeasonPitcher,
 )
@@ -196,6 +197,23 @@ async def main():
 
         # 이름 기반 유일성은 확정 신원이 아니므로,
         # 이 실행 결과는 잠정 매핑임을 명시한다.
+        batch = await record_import_batch(
+            db,
+            dataset="kbo_pitcher_appearances",
+            source_name="PITCHER_ID_MAPPING",
+            season=args.season,
+            season_type="REGULAR",
+            record_count=len(appearances),
+            quality_summary={
+                "mapping_method": "TEAM_NAME_UNIQUE_IN_SEASON",
+                "identity_verified": False,
+                "already_matched": already_matched,
+                "mapping_candidates": len(updates),
+                "withheld_count": len(withheld),
+                "validation": "PASSED",
+            },
+            status="PARTIAL",
+        )
         for row in updates:
             await db.execute(
                 update(KboPitcherAppearance)
@@ -206,9 +224,9 @@ async def main():
                 .values(
                     pitcher_id=row["pitcher_id"],
                     pitcher_id_source="TEAM_NAME_UNIQUE",
+                    source_batch_id=batch.id,
                 )
             )
-
         await db.commit()
         print("잠정 선수 ID 매핑 완료:", len(updates))
 

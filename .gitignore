@@ -5,3 +5,8 @@ __pycache__/
 .DS_Store
 # Local KBO datasets
 /data/private/
+
+# Internal design and delivery notes
+/docs/design.md
+/docs/product-evolution-roadmap.md
+/docs/phase-*-completion.md

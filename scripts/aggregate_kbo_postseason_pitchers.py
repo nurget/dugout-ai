@@ -13,5 +13,5 @@ async def main():
   data=[]
   for x in groups.values():
    bf=x['batters_faced']; x['batters_faced']=bf or None; x['k_pct']=round(100*x['strikeouts']/bf,2) if bf else None; x['bb_pct']=round(100*x['walks']/bf,2) if bf else None; x['k_minus_bb_pct']=round(100*(x['strikeouts']-x['walks'])/bf,2) if bf else None; data.append(x)
-  print('포스트시즌 투수:',len(data)); print('저장:',await import_official_pitchers(db,data,season=2026))
+  print('포스트시즌 투수:',len(data)); print('저장:',await import_official_pitchers(db,data,season=2026,source_name='KBO_BOXSCORE_AGGREGATION',identity_verified=False))
 asyncio.run(main())

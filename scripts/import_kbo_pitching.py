@@ -5,6 +5,7 @@ from sqlalchemy import select
 from app.db.session import AsyncSessionLocal
 from app.models.kbo_pitching import KboPitchingAppearance
 from app.services.kbo_pitching import aggregate_pitchers, load_pitching_csv
+from app.services.data_catalog import record_import_batch
 import csv
 
 async def main(
@@ -51,26 +52,61 @@ async def main(
     if not source:
         raise ValueError("실제 적재 시 --source 출처를 지정해야 합니다")
     async with AsyncSessionLocal() as db:
-        for row in records:
-            old = (await db.execute(select(KboPitchingAppearance).where(
-                KboPitchingAppearance.season == row.season,
-                KboPitchingAppearance.game_date == row.game_date,
-                KboPitchingAppearance.team_code == row.team_code,
-                KboPitchingAppearance.pitcher_name == row.pitcher_name,
-            ))).scalar_one_or_none()
-            if old is None:
-                db.add(KboPitchingAppearance(
-                    season=row.season, game_date=row.game_date, team_code=row.team_code,
-                    pitcher_name=row.pitcher_name, strikeouts=row.strikeouts, walks=row.walks,
-                    batters_faced=row.batters_faced, outs_recorded=row.outs_recorded, source=source,
-                ))
-            else:
-                old.strikeouts = row.strikeouts
-                old.walks = row.walks
-                old.batters_faced = row.batters_faced
-                old.outs_recorded = row.outs_recorded
-                old.source = source
-        await db.commit()
+        try:
+            for row in records:
+                old = (await db.execute(select(KboPitchingAppearance).where(
+                    KboPitchingAppearance.season == row.season,
+                    KboPitchingAppearance.game_date == row.game_date,
+                    KboPitchingAppearance.team_code == row.team_code,
+                    KboPitchingAppearance.pitcher_name == row.pitcher_name,
+                ))).scalar_one_or_none()
+                if old is None:
+                    db.add(KboPitchingAppearance(
+                        season=row.season, game_date=row.game_date, team_code=row.team_code,
+                        pitcher_name=row.pitcher_name, strikeouts=row.strikeouts, walks=row.walks,
+                        batters_faced=row.batters_faced, outs_recorded=row.outs_recorded, source=source,
+                    ))
+                else:
+                    old.strikeouts = row.strikeouts
+                    old.walks = row.walks
+                    old.batters_faced = row.batters_faced
+                    old.outs_recorded = row.outs_recorded
+                    old.source = source
+            await record_import_batch(
+                db,
+                dataset="kbo_pbp_pitching",
+                source_name=source,
+                season=records[0].season if records else None,
+                record_count=len(records),
+                quality_summary={
+                    "pitcher_count": len(summary),
+                    "duplicate_rows": quality["duplicates"],
+                    "missing_batters_faced": quality["missing_pa"],
+                    "unidentified_players": len(unknown_players),
+                    "aggregated_players": len(summary),
+                    "validation": "PASSED",
+                },
+                status=(
+                    "PARTIAL"
+                    if quality["missing_pa"] or unknown_players
+                    else "SUCCESS"
+                ),
+            )
+            await db.commit()
+        except Exception as error:
+            await db.rollback()
+            await record_import_batch(
+                db,
+                dataset="kbo_pbp_pitching",
+                source_name=source,
+                season=records[0].season if records else None,
+                record_count=0,
+                status="FAILED",
+                error_message=f"{type(error).__name__}: {error}",
+                quality_summary={"attempted_records": len(records), "validation": "FAILED"},
+            )
+            await db.commit()
+            raise
     print(f"저장 완료: {len(records)}건")
 
 

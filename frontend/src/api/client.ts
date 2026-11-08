@@ -11,8 +11,13 @@ export type BullpenComparisonResult = {
   type: "bullpen_comparison";
   team_code: string;
   as_of_date: string;
+  data_through_date?: string | null;
+  data_snapshot_id?: string | null;
+  coverage?: { status: string; expected_final_games: number; games_with_appearance_data: number; missing_games: number };
+  provenance?: { status: string; source_batch_ids: string[]; untracked_appearance_rows: number; untracked_game_rows: number };
+  comparison_status?: string;
   availability_verified: boolean;
-  candidates: Array<{ pitcher_id: string; pitcher_name: string; k_minus_bb_pct: number; batters_faced: number; pitches_last_3_days: number | null; consecutive_days: number | null; workload_status: string }>;
+  candidates: Array<{ pitcher_id: string; pitcher_name: string; k_minus_bb_pct: number; games?: number | null; batters_faced: number; data_through_date?: string | null; identity_status?: string | null; identity_source?: string | null; pitches_last_3_days: number | null; consecutive_days: number | null; workload_status: string }>;
   withheld: Array<{ pitcher_id: string; pitcher_name?: string; reason: string }>;
 };
 export type SavedMessage = { id: string; role: "user" | "assistant"; content: string; created_at: string; analysis_results: BullpenComparisonResult[] };

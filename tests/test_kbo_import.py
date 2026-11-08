@@ -1,6 +1,11 @@
 import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.services.kbo_import import InvalidKboDataset, normalize_dataset
+from app.db.base import Base
+from app.models.data_import_batch import DataImportBatch
+from app.models.kbo import KboGame, KboTeam
+from app.services.kbo_import import InvalidKboDataset, import_games, normalize_dataset
 
 
 def sample():
@@ -75,3 +80,25 @@ def test_reject_mixed_seasons():
 
     with pytest.raises(InvalidKboDataset):
         normalize_dataset(payload)
+
+
+@pytest.mark.asyncio
+async def test_game_import_links_rows_to_its_batch():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    tables = [DataImportBatch.__table__, KboTeam.__table__, KboGame.__table__]
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all, tables=tables)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        rows = normalize_dataset(sample())
+        await import_games(session, rows, source_name="fixture.json")
+        await session.commit()
+
+        game = await session.get(KboGame, "20250322NCHT0")
+        batch = await session.get(DataImportBatch, game.source_batch_id)
+
+        assert game.source_batch_id
+        assert batch.dataset == "kbo_games"
+        assert batch.record_count == 1
+        assert batch.quality_summary["validation"] == "PASSED"
+    await engine.dispose()

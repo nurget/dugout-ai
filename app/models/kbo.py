@@ -27,4 +27,7 @@ class KboGame(Base):
     away_score: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     source_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_batch_id: Mapped[str | None] = mapped_column(
+        ForeignKey("data_import_batches.id"), nullable=True, index=True
+    )
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)

@@ -2,9 +2,11 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.kbo import KboGame, KboTeam
+from app.services.data_catalog import record_import_batch
 
 
 class InvalidKboDataset(ValueError):
@@ -143,4 +145,25 @@ async def import_games(session: AsyncSession, games: list[NormalizedGame], sourc
         existing.status = game.status
         existing.source_name = source_name
     await session.flush()
+    batch = await record_import_batch(
+        session,
+        dataset="kbo_games",
+        source_name=source_name,
+        season=games[0].season if games else None,
+        record_count=len(games),
+        quality_summary={
+            "team_count": len({code for game in games for code in (game.home_code, game.away_code)}),
+            "date_min": min((game.game_date.isoformat() for game in games), default=None),
+            "date_max": max((game.game_date.isoformat() for game in games), default=None),
+            "duplicate_game_ids": 0,
+            "validation": "PASSED",
+        },
+    )
+    game_ids = [game.game_pk for game in games]
+    if game_ids:
+        await session.execute(
+            update(KboGame)
+            .where(KboGame.game_pk.in_(game_ids))
+            .values(source_batch_id=batch.id)
+        )
     return len(games)

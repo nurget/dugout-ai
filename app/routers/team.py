@@ -1,7 +1,8 @@
 from datetime import date, datetime
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import CurrentUser
@@ -11,6 +12,7 @@ from app.services.team_data import (
     get_team_pitchers,
     get_team_official_pitchers,
 )
+from app.services.data_catalog import get_latest_dataset_statuses
 
 
 router = APIRouter(
@@ -81,7 +83,46 @@ async def get_my_team_pitchers(
     session: SessionDep,
     season: int = Query(default=2026, ge=1982, le=2100),
     season_type: str = Query(default="REGULAR", pattern="^(REGULAR|POSTSEASON|WILDCARD|SEMIPLAYOFF|PLAYOFF|KOREAN_SERIES)$"),
+    as_of_date: date | None = Query(default=None),
 ):
+    if as_of_date is not None:
+        if season_type != "REGULAR":
+            raise HTTPException(status_code=422, detail="기준일 누적 집계는 정규시즌만 지원합니다.")
+        if as_of_date.year != season:
+            raise HTTPException(status_code=422, detail="기준일과 시즌 연도가 일치해야 합니다.")
+        if as_of_date > datetime.now(ZoneInfo("Asia/Seoul")).date():
+            raise HTTPException(status_code=422, detail="기준일은 미래일 수 없습니다.")
+
+        from app.services.as_of_pitcher import get_pitcher_stats_as_of
+
+        result = await get_pitcher_stats_as_of(
+            session,
+            season=season,
+            team_code=current_user.team_code,
+            as_of_date=as_of_date,
+        )
+        statuses = await get_latest_dataset_statuses(session)
+        snapshot = next(
+            row["snapshot_id"]
+            for row in statuses
+            if row["dataset"] == "kbo_pitcher_appearances"
+        )
+        return {
+            "team_code": current_user.team_code,
+            "season": season,
+            "season_type": "REGULAR",
+            "as_of_date": as_of_date.isoformat(),
+            "data_snapshot_id": snapshot,
+            "stat_source": result["stat_source"],
+            "coverage": result["coverage"],
+            "provenance": result["provenance"],
+            "data_through_date": result["data_through_date"],
+            "count": len(result["pitchers"]),
+            "data": result["pitchers"],
+            "withheld": result["withheld"],
+            "limitations": result["limitations"],
+        }
+
     official = await get_team_official_pitchers(
         session=session,
         team_code=current_user.team_code,
@@ -108,4 +149,17 @@ async def get_my_team_pitchers(
             "Play-by-Play 데이터를 기반으로 집계했습니다. "
             "공식 시즌 전체 기록과 차이가 있을 수 있습니다."
         ),
+    }
+
+
+@router.get("/data-status")
+async def get_my_team_data_status(
+    current_user: CurrentUser,
+    session: SessionDep,
+):
+    """인증된 사용자가 서비스가 사용하는 KBO 데이터의 출처/상태를 확인한다."""
+    return {
+        "team_code": current_user.team_code,
+        "scope": "TEAM_ACCOUNT_DATA_OPERATIONS",
+        "data": await get_latest_dataset_statuses(session),
     }

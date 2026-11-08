@@ -39,7 +39,6 @@ async def test_injects_authenticated_team(monkeypatch):
     handler = AsyncMock(
         return_value={"team_code": "KT", "pitchers": []}
     )
-
     schema_class, _ = registry.TOOL_REGISTRY[
         "get_bullpen_workload"
     ]
@@ -64,6 +63,59 @@ async def test_injects_authenticated_team(monkeypatch):
         as_of_date=date(2026, 3, 30),
         authenticated_team_code="KT",
     )
+
+
+@pytest.mark.asyncio
+async def test_injects_server_as_of_date_over_model_argument(monkeypatch):
+    handler = AsyncMock(return_value={"team_code": "KT", "pitchers": []})
+    schema_class, _ = registry.TOOL_REGISTRY["get_bullpen_workload"]
+    monkeypatch.setitem(
+        registry.TOOL_REGISTRY,
+        "get_bullpen_workload",
+        (schema_class, handler),
+    )
+
+    result = await registry.execute_tool(
+        session=None,
+        tool_name="get_bullpen_workload",
+        arguments={"as_of_date": "2026-03-30"},
+        context=SimpleNamespace(
+            team_code="KT",
+            as_of_date=date(2026, 4, 1),
+        ),
+    )
+
+    assert result["ok"] is True
+    assert handler.await_args.kwargs["as_of_date"] == date(2026, 4, 1)
+
+
+@pytest.mark.asyncio
+async def test_historical_pitcher_comparison_uses_server_as_of(monkeypatch):
+    handler = AsyncMock(return_value={"comparison_status": "COMPARABLE"})
+    schema_class, _ = registry.TOOL_REGISTRY["compare_pitchers"]
+    monkeypatch.setitem(
+        registry.TOOL_REGISTRY,
+        "compare_pitchers",
+        (schema_class, handler),
+    )
+    result = await registry.execute_tool(
+        session=None,
+        tool_name="compare_pitchers",
+        arguments={
+            "season": 2026,
+            "first_pitcher_id": "1",
+            "second_pitcher_id": "2",
+            "as_of_date": "2026-03-30",
+        },
+        context=SimpleNamespace(
+            team_code="KT",
+            as_of_date=date(2026, 3, 29),
+        ),
+    )
+
+    assert result["ok"] is True
+    assert handler.await_args.kwargs["as_of_date"] == date(2026, 3, 29)
+    assert handler.await_args.kwargs["season"] == 2026
 
 
 @pytest.mark.asyncio
@@ -93,7 +145,7 @@ async def test_rejects_model_supplied_team_code():
         ),
         (
             "search_season_pitchers",
-            {"season": 2026, "name": "김"},
+            {"season": 2026, "name": "김", "as_of_date": "2026-03-30"},
             "team",
         ),
         (
@@ -102,6 +154,7 @@ async def test_rejects_model_supplied_team_code():
                 "season": 2026,
                 "first_pitcher_id": "1",
                 "second_pitcher_id": "2",
+                "as_of_date": "2026-03-30",
             },
             "team",
         ),

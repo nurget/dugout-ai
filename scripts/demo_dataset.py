@@ -11,8 +11,9 @@ import: 신규 DB에 중복 없이 데이터를 삽입한다.
 import argparse
 import asyncio
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from sqlalchemy import MetaData, Table, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -48,7 +49,7 @@ def load_tables(connection):
 
     return {
         name: Table(name, metadata, autoload_with=connection)
-        for name in ("kbo_teams", *TABLE_NAMES)
+        for name in ("kbo_teams", *TABLE_NAMES, "data_import_batches")
     }
 
 
@@ -116,7 +117,7 @@ def convert_row(table, raw_row):
         name = column.name
 
         # DB가 새로운 기본키를 자동 발급하도록 한다.
-        if name == "id":
+        if name in {"id", "source_batch_id"}:
             continue
 
         if name not in raw_row:
@@ -185,6 +186,69 @@ def import_data(connection, payload):
             connection.execute(statement)
 
         print(f"{name}: {len(raw_rows)}건 처리")
+
+    # 복원한 데이터도 일반 적재와 같은 provenance 목록에 남긴다.
+    batch_table = tables["data_import_batches"]
+    imported_at = datetime.now(timezone.utc)
+    batch_specs = (
+        (
+            "kbo_games",
+            len(games),
+            {"team_count": len(team_codes), "validation": "PASSED"},
+        ),
+        (
+            "kbo_pitcher_appearances",
+            len(payload["tables"]["kbo_pitcher_appearances"]),
+            {
+                "team_count": len({row["team_code"] for row in payload["tables"]["kbo_pitcher_appearances"]}),
+                "verified_pitcher_ids": sum(row.get("pitcher_id_source") == "OFFICIAL_VERIFIED" for row in payload["tables"]["kbo_pitcher_appearances"]),
+                "tentative_pitcher_ids": sum(row.get("pitcher_id_source") == "TEAM_NAME_UNIQUE" for row in payload["tables"]["kbo_pitcher_appearances"]),
+                "unmapped_pitcher_ids": sum(not row.get("pitcher_id") for row in payload["tables"]["kbo_pitcher_appearances"]),
+                "validation": "PASSED",
+            },
+        ),
+        (
+            "kbo_official_season_pitchers",
+            len(payload["tables"]["kbo_official_season_pitchers"]),
+            {"team_count": 1, "validation": "PASSED"},
+        ),
+    )
+    batch_ids = {}
+    for dataset, count, quality in batch_specs:
+        batch_id = str(uuid4())
+        batch_ids[dataset] = batch_id
+        connection.execute(batch_table.insert().values(
+            id=batch_id,
+            dataset=dataset,
+            source_name="DUGOUT_AI_KIA_DEMO",
+            status=(
+                "PARTIAL"
+                if quality.get("tentative_pitcher_ids") or quality.get("unmapped_pitcher_ids")
+                else "SUCCESS"
+            ),
+            freshness="UNKNOWN",
+            season=2026,
+            season_type="REGULAR",
+            source_updated_at=None,
+            imported_at=imported_at,
+            record_count=count,
+            quality_summary=quality,
+        ))
+
+    if games:
+        connection.execute(
+            tables["kbo_games"].update()
+            .where(tables["kbo_games"].c.game_pk.in_([row["game_pk"] for row in games]))
+            .values(source_batch_id=batch_ids["kbo_games"])
+        )
+    appearance_rows = payload["tables"]["kbo_pitcher_appearances"]
+    if appearance_rows:
+        connection.execute(
+            tables["kbo_pitcher_appearances"].update()
+            .where(tables["kbo_pitcher_appearances"].c.game_pk.in_([row["game_pk"] for row in appearance_rows]))
+            .values(source_batch_id=batch_ids["kbo_pitcher_appearances"])
+        )
+
 
 
 async def run_export(path: Path):

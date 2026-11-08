@@ -35,13 +35,22 @@ def comparison_event(result: dict[str, Any]) -> dict[str, Any]:
         "type": "bullpen_comparison",
         "team_code": comparison["team_code"],
         "as_of_date": comparison["as_of_date"],
+        "data_through_date": comparison.get("data_through_date"),
+        "data_snapshot_id": comparison.get("data_snapshot_id"),
+        "coverage": comparison.get("coverage"),
+        "provenance": comparison.get("provenance"),
+        "comparison_status": comparison.get("comparison_status", "COMPARABLE"),
         "availability_verified": False,
         "candidates": [
             {
                 "pitcher_id": row["pitcher_id"],
                 "pitcher_name": row["pitcher_name"],
                 "k_minus_bb_pct": row["k_minus_bb_pct"],
+                "games": row.get("games"),
                 "batters_faced": row["batters_faced"],
+                "data_through_date": row.get("data_through_date"),
+                "identity_status": row.get("identity_status"),
+                "identity_source": row.get("identity_source"),
                 "pitches_last_3_days": row["pitches_last_3_days"],
                 "consecutive_days": row["consecutive_days"],
                 "workload_status": row["workload_status"],
@@ -70,6 +79,8 @@ async def stream_agent(
     yield "started", {
         "run_id": metrics.run_id,
         "message": "경기 분석을 시작합니다.",
+        "as_of_date": context.as_of_date.isoformat() if context and context.as_of_date else None,
+        "data_snapshot_ids": context.data_snapshot_ids if context else {},
     }
 
     try:

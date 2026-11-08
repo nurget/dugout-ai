@@ -114,6 +114,8 @@ def recommend_bullpen(
             "batters_faced": batters_faced,
             "k_minus_bb_pct": float(k_minus_bb_pct),
             "sample_tier": sample_tier,
+            "identity_status": season.get("identity_status"),
+            "identity_source": season.get("identity_source"),
             "workload_status": workload["workload_status"],
             "pitches_last_3_days": workload.get(
                 "pitches_last_3_days"

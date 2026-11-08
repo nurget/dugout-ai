@@ -103,6 +103,13 @@ TEAM_ARGUMENT_BY_TOOL = {
     "compare_bullpen_candidates": "authenticated_team_code",
 }
 
+SNAPSHOT_DATASET_BY_TOOL = {
+    "search_season_pitchers": "kbo_pitcher_appearances",
+    "compare_pitchers": "kbo_pitcher_appearances",
+    "get_bullpen_workload": "kbo_pitcher_appearances",
+    "compare_bullpen_candidates": "kbo_pitcher_appearances",
+}
+
 def tool_error(code: str, message: str) -> dict[str, Any]:
     return {
         "ok": False,
@@ -151,6 +158,18 @@ async def execute_tool(
         validated = schema_class.model_validate(arguments)
         kwargs = validated.model_dump()
 
+        context_as_of_date = getattr(context, "as_of_date", None)
+        if context_as_of_date is not None:
+            if tool_name in {
+                "get_bullpen_workload",
+                "compare_bullpen_candidates",
+                "search_season_pitchers",
+                "compare_pitchers",
+            }:
+                kwargs["as_of_date"] = context_as_of_date
+            if tool_name in {"search_season_pitchers", "compare_pitchers"}:
+                kwargs["season"] = context_as_of_date.year
+
         if is_team_scoped:
             team_argument = TEAM_ARGUMENT_BY_TOOL[tool_name]
             kwargs[team_argument] = context.team_code
@@ -159,6 +178,17 @@ async def execute_tool(
             session,
             **kwargs,
         )
+
+        snapshot_dataset = SNAPSHOT_DATASET_BY_TOOL.get(tool_name)
+        if (
+            snapshot_dataset
+            and context is not None
+            and isinstance(result, dict)
+        ):
+            context_snapshot_ids = getattr(context, "data_snapshot_ids", None) or {}
+            result["data_snapshot_id"] = (
+                context_snapshot_ids.get(snapshot_dataset)
+            )
 
         return {
             "ok": True,

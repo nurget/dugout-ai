@@ -1,4 +1,5 @@
 from datetime import datetime, timezone, timedelta
+from datetime import date
 
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,12 +14,16 @@ async def create_agent_run(
     db: AsyncSession,
     run_id: str,
     conversation_id: str,
+    as_of_date: date | None = None,
+    data_snapshot_ids: dict[str, str | None] | None = None,
 ) -> None:
     db.add(
         AgentRun(
             run_id=run_id,
             conversation_id=conversation_id,
             status="RUNNING",
+            as_of_date=as_of_date,
+            data_snapshot_ids=data_snapshot_ids,
         )
     )
     await db.commit()

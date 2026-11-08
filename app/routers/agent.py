@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -7,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from zoneinfo import ZoneInfo
 
 from app.agent.context import AgentContext
 from app.agent.streaming import stream_agent
@@ -37,6 +39,7 @@ from app.repositories.conversation_owner import (
     assign_conversation_owner,
     require_conversation_access,
 )
+from app.services.data_catalog import get_latest_dataset_statuses
 
 
 logger = logging.getLogger(__name__)
@@ -66,11 +69,11 @@ async def chat_stream(
             detail="AI 서비스가 설정되지 않았습니다.",
         )
 
-    context = AgentContext(
-        user_id=str(current_user.id),
-        team_code=current_user.team_code,
-        role=current_user.role,
-    )
+    requested_as_of = payload.as_of_date or datetime.now(
+        ZoneInfo("Asia/Seoul")
+    ).date()
+    if requested_as_of > datetime.now(ZoneInfo("Asia/Seoul")).date():
+        raise HTTPException(status_code=422, detail="분석 기준일은 미래일 수 없습니다.")
 
     # 권한 검사는 SSE 응답이 시작되기 전에 수행한다.
     if payload.conversation_id is not None:
@@ -80,8 +83,8 @@ async def chat_stream(
             await require_conversation_access(
                 session=db,
                 conversation_id=conversation_id,
-                user_id=context.user_id,
-                team_code=context.team_code,
+                user_id=str(current_user.id),
+                team_code=current_user.team_code,
             )
 
             existing = await get_conversation(
@@ -112,6 +115,18 @@ async def chat_stream(
                     analysis_results: list[dict] = []
 
                     try:
+                        statuses = await get_latest_dataset_statuses(session)
+                        data_snapshot_ids = {
+                            row["dataset"]: row["snapshot_id"]
+                            for row in statuses
+                        }
+                        context = AgentContext(
+                            user_id=str(current_user.id),
+                            team_code=current_user.team_code,
+                            role=current_user.role,
+                            as_of_date=requested_as_of,
+                            data_snapshot_ids=data_snapshot_ids,
+                        )
                         if payload.conversation_id is None:
                             conversation = (
                                 await create_conversation(session)
@@ -182,6 +197,8 @@ async def chat_stream(
                                     db=audit_db,
                                     run_id=run_id,
                                     conversation_id=conversation.id,
+                                    as_of_date=requested_as_of,
+                                    data_snapshot_ids=data_snapshot_ids,
                                 )
 
                             elif event_name == "tool_start":
@@ -415,6 +432,8 @@ async def get_agent_run_detail(
         "llm_calls": run.llm_calls,
         "input_tokens": run.input_tokens,
         "output_tokens": run.output_tokens,
+        "as_of_date": run.as_of_date.isoformat() if run.as_of_date else None,
+        "data_snapshot_ids": run.data_snapshot_ids or {},
         "error_code": run.error_code,
         "started_at": run.started_at.isoformat(),
         "finished_at": (
