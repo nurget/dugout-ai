@@ -93,6 +93,22 @@ async def test_authenticated_sse_persists_messages_and_run(
                 "/api/teams/me/data-status"
             )
             assert unauthorized_status.status_code == 401
+            unauthorized_matchup_search = await client.get(
+                "/api/teams/me/matchup-batters",
+                params={"opponent_team_code": "LG", "as_of_date": "2026-06-30"},
+            )
+            assert unauthorized_matchup_search.status_code == 401
+            unauthorized_matchup_analysis = await client.post(
+                "/api/teams/me/pitcher-matchups",
+                json={
+                    "season": 2026,
+                    "as_of_date": "2026-06-30",
+                    "opponent_team_code": "LG",
+                    "pitcher_ids": ["10001"],
+                    "batter_ids": ["20001"],
+                },
+            )
+            assert unauthorized_matchup_analysis.status_code == 401
 
             register = await client.post("/api/auth/register", json={
                 "username": "integration-coach",
@@ -115,6 +131,30 @@ async def test_authenticated_sse_persists_messages_and_run(
                 datetime.now(ZoneInfo("Asia/Seoul")).date()
                 + timedelta(days=1)
             )
+            future_batter_search = await client.get(
+                "/api/teams/me/matchup-batters",
+                headers=headers,
+                params={
+                    "opponent_team_code": "LG",
+                    "season": future_date.year,
+                    "as_of_date": future_date.isoformat(),
+                },
+            )
+            assert future_batter_search.status_code == 422
+
+            future_matchup = await client.post(
+                "/api/teams/me/pitcher-matchups",
+                headers=headers,
+                json={
+                    "season": future_date.year,
+                    "as_of_date": future_date.isoformat(),
+                    "opponent_team_code": "LG",
+                    "pitcher_ids": ["10001"],
+                    "batter_ids": ["20001"],
+                },
+            )
+            assert future_matchup.status_code == 422
+
             future_analysis = await client.post(
                 "/api/agent/chat/stream",
                 headers=headers,
@@ -187,6 +227,7 @@ async def test_authenticated_sse_persists_messages_and_run(
                 "kbo_pitcher_appearances": None,
                 "kbo_official_season_pitchers": None,
                 "kbo_pbp_pitching": None,
+                "kbo_plate_appearances": None,
             }
             assert run.json()["tools"][0]["name"] == "get_game_state"
     finally:

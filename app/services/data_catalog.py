@@ -24,6 +24,10 @@ DATASETS = {
         "label": "Play-by-Play 투수 기록",
         "source_policy": "원본 PBP의 타석 집계. 시즌 범위와 집계 품질 요약을 함께 관리",
     },
+    "kbo_plate_appearances": {
+        "label": "타자·투수 맞대결 타석",
+        "source_policy": "Naver Sports 중계 API 기반의 외부 PBP 데이터셋. 상용 사용 전 원천 권리 확인 필요",
+    },
 }
 
 

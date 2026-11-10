@@ -13,6 +13,7 @@
 - OpenAI Responses API와 strict function schema를 이용한 다단계 Tool Calling
 - 실제 경기 상태, 시즌 투수 지표, 최근 3일 투구 부담 조회
 - 기준일 이전 종료 경기만 사용한 투수 누적 지표와 불펜 후보 비교
+- 경기 날짜에 소속 구단의 상대팀과 PBP 관측 타자를 자동 구성해 후보 투수의 과거 직접 맞대결 조회
 - KBO 데이터 적재 상태와 출처 확인
 - 투구 수·이닝·주자 상황에 대한 규칙 기반 교체 검토
 - SSE를 통한 Tool 실행 상태와 답변 텍스트 스트리밍
@@ -117,6 +118,9 @@ uv run python -m scripts.create_demo_user --username demo --team KIA --role COAC
 | `GET` | `/api/teams/me/games` | 인증 구단 경기 조회 |
 | `GET` | `/api/teams/me/pitchers` | 인증 구단 투수 지표 조회 (`as_of_date` 입력 시 과거 누적 재계산) |
 | `GET` | `/api/teams/me/data-status` | KBO 데이터셋 출처·적재·품질 상태 조회 |
+| `GET` | `/api/teams/me/matchup-games` | 경기 날짜에 소속 구단이 치른 경기와 PBP 관측 타자 조회 |
+| `GET` | `/api/teams/me/matchup-batters` | 기준일 이전 경기에서 상대 타자 ID와 좌우 타석 정보 검색 |
+| `POST` | `/api/teams/me/pitcher-matchups` | 선택 경기의 관측 타자와 후보 투수의 기준일 이전 맞대결 집계 |
 | `POST` | `/api/agent/chat/stream` | JWT, 메시지, 선택적 대화 ID를 받아 SSE 응답 |
 | `GET` | `/api/agent/conversations/{id}/messages` | 소유한 대화 복원 |
 | `GET` | `/api/agent/runs/{id}` | Agent·Tool 실행 이력 조회 |
@@ -135,6 +139,22 @@ curl -N -X POST http://127.0.0.1:8000/api/agent/chat/stream \
 ```
 
 SSE는 `conversation`, `started`, `tool_start`, `tool_result`, `analysis_result`, `answer_delta`, `completed`, `error` 이벤트를 사용합니다.
+
+### 상대 타순 맞대결 요청
+
+경기 날짜를 선택하면 소속 구단이 치른 경기와 상대팀을 자동으로 찾고, 해당 경기 PBP에 나온 타자를 첫 타석 순으로 구성합니다. 더블헤더는 경기를 선택할 수 있습니다. 이 순서는 공식 선발 라인업 피드가 아니라 경기 중 관측된 타자 순서입니다. 직접 맞대결 타석은 선택한 날짜 이전 기록만 집계합니다.
+
+```json
+{
+  "season": 2026,
+  "as_of_date": "2026-06-30",
+  "opponent_team_code": "LG",
+  "pitcher_ids": ["10001", "10002"],
+  "batter_ids": ["20001", "20002", "20003"]
+}
+```
+
+응답은 타자별 타석 수, 안타, 삼진, 볼넷, 홈런, 사구와 표본 구간을 제공합니다. 직접 맞대결은 표본이 작을 수 있어 예측 점수나 추천 정확도로 해석하지 않습니다. 현재 원천 데이터에는 투수 투구 손이 없어 좌우 스플릿은 반환하지 않습니다.
 
 ## 테스트
 
@@ -171,6 +191,9 @@ uv run alembic downgrade -1
 ## 데이터와 안전 범위
 
 - 번들 데모는 KIA 2026 정규시즌 데이터이며 실시간 KBO 연동이 아닙니다.
+- 타순 맞대결은 별도 PBP 데이터 적재가 필요합니다. 공개 데이터셋 snapshot을 가져오려면 `uv run python -m scripts.fetch_kbo_pbp_snapshot --season 2026 --output data/private/kbo_pbp_2026_hf.parquet`을 실행하세요. 고정된 저장소 revision, SHA-256, 날짜 범위, 원천/라이선스 표기를 `.source.json` sidecar에 기록하고 `data/private/` 아래에만 파일을 저장합니다. 다운로드만 수행하며 DB에는 반영하지 않습니다.
+- 내려받은 파일을 먼저 dry-run 검증합니다: `uv run python -m scripts.import_kbo_plate_appearances data/private/kbo_pbp_2026_hf.parquet --season 2026 --source kbo_pbp_naver_sports_cc_by_4.0`. DB에 적재하려면 기존 DB 스키마와 migration 상태를 확인한 뒤 `--apply`를 추가합니다.
+- PBP 데이터셋은 [배포자 저장소](https://github.com/slothman3878/kbo_pbp_naver_sports)와 [데이터 카드](https://huggingface.co/datasets/slothman3878/kbo_playbyplay)에 명시된 출처·라이선스를 확인해야 합니다. 배포자는 Naver Sports 중계 API 기반이며 데이터셋 라이선스를 CC BY 4.0으로 표시합니다. 서비스 운영 전에는 원천 데이터의 상업적 사용 및 재배포 권한도 확인해야 합니다.
 - `as_of_date` 분석은 적재된 경기별 기록을 기준일 이전 종료 경기로 다시 집계합니다. 날짜 안의 경기 순서는 구분하지 않습니다.
 - 데이터의 출처와 적재 상태를 제공하지만, 이는 데이터의 정확성이나 최신성을 보증하지 않습니다.
 - `TEAM_NAME_UNIQUE`는 구단과 이름을 기준으로 연결한 잠정 ID입니다. 동명이인이나 매핑 근거가 불충분하면 비교에서 제외합니다.
@@ -178,3 +201,4 @@ uv run alembic downgrade -1
 - `NO_HIGH_LOAD_FLAG`는 조회한 기록에서 높은 부담 신호가 없다는 뜻이며 출전 가능을 보장하지 않습니다.
 - 공개 가입은 기본값이 꺼져 있고, 켜더라도 클라이언트가 역할을 선택할 수 없으며 `COACH`만 생성됩니다. 다만 데모 가입에서는 구단을 직접 고르므로 운영 계정은 관리자 프로비저닝 또는 조직 초대 흐름이 필요합니다.
 - 불펜 비교는 확인 가능한 데이터에 기반한 참고 정보이며, 교체 성공 확률이나 실제 컨디션을 예측하지 않습니다.
+- 상대 타순 직접 맞대결은 과거 관측 요약이며 미래 타석 결과를 예측하지 않습니다. PBP 데이터가 없는 경기의 타자는 자동 구성할 수 없고, 원천 데이터 범위 밖 경기와 당일 경기 결과는 맞대결 집계에 반영하지 않습니다.
