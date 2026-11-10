@@ -10,6 +10,7 @@ from app.models.kbo_pitching import KboPitchingAppearance
 from app.models.user import User
 from app.models.conversation_owner import ConversationOwner
 from app.models.data_import_batch import DataImportBatch
+from app.models.kbo_plate_appearance import KboPlateAppearance
 
 __all__ = [
     "Player",
@@ -28,4 +29,5 @@ __all__ = [
     "User",
     "ConversationOwner",
     "DataImportBatch",
+    "KboPlateAppearance",
 ]

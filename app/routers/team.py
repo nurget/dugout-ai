@@ -13,6 +13,7 @@ from app.services.team_data import (
     get_team_official_pitchers,
 )
 from app.services.data_catalog import get_latest_dataset_statuses
+from app.schemas.matchup import LineupMatchupRequest
 
 
 router = APIRouter(
@@ -163,3 +164,82 @@ async def get_my_team_data_status(
         "scope": "TEAM_ACCOUNT_DATA_OPERATIONS",
         "data": await get_latest_dataset_statuses(session),
     }
+
+
+@router.post("/pitcher-matchups")
+async def get_pitcher_matchups(
+    request: LineupMatchupRequest,
+    current_user: CurrentUser,
+    session: SessionDep,
+):
+    """선택 경기에서 관측한 상대 타자와 후보 투수의 과거 직접 맞대결을 조회한다."""
+    if request.as_of_date.year != request.season:
+        raise HTTPException(status_code=422, detail="기준일과 시즌 연도가 일치해야 합니다.")
+    if request.as_of_date > datetime.now(ZoneInfo("Asia/Seoul")).date():
+        raise HTTPException(status_code=422, detail="기준일은 미래일 수 없습니다.")
+    from app.services.kbo_matchups import analyze_lineup_matchups
+
+    try:
+        return await analyze_lineup_matchups(
+            session,
+            team_code=current_user.team_code,
+            opponent_team_code=request.opponent_team_code,
+            pitcher_ids=request.pitcher_ids,
+            batter_ids=request.batter_ids,
+            season=request.season,
+            as_of_date=request.as_of_date,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.get("/matchup-games")
+async def get_matchup_games(
+    current_user: CurrentUser,
+    session: SessionDep,
+    game_date: date = Query(),
+    season: int = Query(default=2026, ge=1982, le=2100),
+):
+    """날짜에 소속 구단이 치른 경기와 해당 경기에서 관측된 상대 타자를 조회한다."""
+    if game_date.year != season:
+        raise HTTPException(status_code=422, detail="기준일과 시즌 연도가 일치해야 합니다.")
+    if game_date > datetime.now(ZoneInfo("Asia/Seoul")).date():
+        raise HTTPException(status_code=422, detail="기준일은 미래일 수 없습니다.")
+    from app.services.kbo_matchups import get_matchup_games_for_date
+
+    try:
+        return await get_matchup_games_for_date(
+            session,
+            team_code=current_user.team_code,
+            season=season,
+            game_date=game_date,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.get("/matchup-batters")
+async def get_matchup_batters(
+    current_user: CurrentUser,
+    session: SessionDep,
+    opponent_team_code: str = Query(min_length=2, max_length=12),
+    season: int = Query(default=2026, ge=1982, le=2100),
+    as_of_date: date = Query(),
+    query: str | None = Query(default=None, min_length=1, max_length=80),
+):
+    if as_of_date.year != season:
+        raise HTTPException(status_code=422, detail="기준일과 시즌 연도가 일치해야 합니다.")
+    if as_of_date > datetime.now(ZoneInfo("Asia/Seoul")).date():
+        raise HTTPException(status_code=422, detail="기준일은 미래일 수 없습니다.")
+    from app.services.kbo_matchups import search_opponent_batters
+
+    try:
+        return await search_opponent_batters(
+            session,
+            opponent_team_code=opponent_team_code,
+            season=season,
+            as_of_date=as_of_date,
+            query=query,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
