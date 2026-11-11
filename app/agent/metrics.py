@@ -12,6 +12,7 @@ class ToolMetric:
 class AgentMetrics:
     run_id: str = field(default_factory=lambda: str(uuid4()))
     started_at: float = field(default_factory=perf_counter)
+    versions: dict[str, str] = field(default_factory=dict)
     
     llm_calls: int = 0
     input_tokens: int = 0
@@ -21,13 +22,26 @@ class AgentMetrics:
     usage_missing: bool = False
     
     tools: list[ToolMetric] = field(default_factory=list)
+    llm_call_metrics: list[dict] = field(default_factory=list)
     
     def record_llm_call(
         self,
         input_tokens: int | None,
         output_tokens: int | None,
+        *,
+        stage: str = "UNKNOWN",
+        duration_ms: float | None = None,
+        cached_input_tokens: int | None = None,
     ) -> None:
         self.llm_calls += 1
+        self.llm_call_metrics.append({
+            "sequence": self.llm_calls,
+            "stage": stage,
+            "duration_ms": round(duration_ms, 2) if duration_ms is not None else None,
+            "input_tokens": input_tokens,
+            "cached_input_tokens": cached_input_tokens,
+            "output_tokens": output_tokens,
+        })
         
         if input_tokens is None or output_tokens is None:
             self.usage_missing = True
@@ -58,6 +72,8 @@ class AgentMetrics:
                 2,
             ),
             "llm_calls": self.llm_calls,
+            **self.versions,
+            "llm_call_metrics": self.llm_call_metrics,
             "input_tokens": (
                 None if self.usage_missing else self.input_tokens
             ),

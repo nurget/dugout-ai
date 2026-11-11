@@ -3,7 +3,7 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from time import perf_counter
-from typing import Any
+from typing import Any, Callable
 
 from openai import AsyncOpenAI, OpenAIError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.context import AgentContext, build_conversation_input
 from app.agent.metrics import AgentMetrics
 from app.agent.prompt import MAX_TOOL_ROUNDS, SYSTEM_PROMPT
+from app.agent.versions import agent_versions
 from app.agent.tool_definitions import (
     AGENT_TOOLS,
     FINALIZE_ANALYSIS_TOOL_NAME,
@@ -21,11 +22,26 @@ from app.tools.registry import execute_tool
 logger = logging.getLogger(__name__)
 
 
-def record_response_usage(metrics: AgentMetrics, response: Any) -> None:
+def record_response_usage(
+    metrics: AgentMetrics,
+    response: Any,
+    *,
+    stage: str,
+    duration_ms: float | None = None,
+) -> None:
     usage = getattr(response, "usage", None)
+    input_details = getattr(usage, "input_tokens_details", None)
+    cached_tokens = (
+        input_details.get("cached_tokens")
+        if isinstance(input_details, dict)
+        else getattr(input_details, "cached_tokens", None)
+    )
     metrics.record_llm_call(
         input_tokens=(usage.input_tokens if usage is not None else None),
         output_tokens=(usage.output_tokens if usage is not None else None),
+        cached_input_tokens=cached_tokens,
+        stage=stage,
+        duration_ms=duration_ms,
     )
 
 
@@ -67,12 +83,14 @@ async def stream_agent(
     client: AsyncOpenAI,
     history: list[dict[str, str]] | None = None,
     context: AgentContext | None = None,
+    on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
     conversation: list[Any] = build_conversation_input(
         message=message,
         history=history,
     )
-    metrics = AgentMetrics()
+    versions = agent_versions(settings.openai_model)
+    metrics = AgentMetrics(versions=versions)
     answer_started = False
     final_round = MAX_TOOL_ROUNDS + 1
 
@@ -81,10 +99,12 @@ async def stream_agent(
         "message": "경기 분석을 시작합니다.",
         "as_of_date": context.as_of_date.isoformat() if context and context.as_of_date else None,
         "data_snapshot_ids": context.data_snapshot_ids if context else {},
+        **versions,
     }
 
     try:
         for round_number in range(1, MAX_TOOL_ROUNDS + 1):
+            llm_started_at = perf_counter()
             response = await client.responses.create(
                 model=settings.openai_model,
                 instructions=SYSTEM_PROMPT,
@@ -95,7 +115,12 @@ async def stream_agent(
                 max_output_tokens=1024,
                 store=False,
             )
-            record_response_usage(metrics, response)
+            record_response_usage(
+                metrics,
+                response,
+                stage="PLAN",
+                duration_ms=(perf_counter() - llm_started_at) * 1000,
+            )
 
             tool_calls = [
                 item for item in response.output
@@ -113,6 +138,15 @@ async def stream_agent(
             finalize_requested = False
 
             for tool_call in tool_calls:
+                if on_tool_call is not None and tool_call.name != FINALIZE_ANALYSIS_TOOL_NAME:
+                    try:
+                        captured_arguments = json.loads(tool_call.arguments)
+                    except (TypeError, json.JSONDecodeError):
+                        captured_arguments = {}
+                    on_tool_call(
+                        tool_call.name,
+                        captured_arguments if isinstance(captured_arguments, dict) else {},
+                    )
                 if tool_call.name == FINALIZE_ANALYSIS_TOOL_NAME:
                     conversation.append({
                         "type": "function_call_output",
@@ -191,6 +225,7 @@ async def stream_agent(
                 final_round = round_number + 1
                 break
 
+        final_started_at = perf_counter()
         final_stream = await client.responses.create(
             model=settings.openai_model,
             instructions=SYSTEM_PROMPT,
@@ -210,7 +245,12 @@ async def stream_agent(
                 yield "answer_delta", {"delta": event.delta}
             elif event.type == "response.completed":
                 completed_response = event.response
-                record_response_usage(metrics, event.response)
+                record_response_usage(
+                    metrics,
+                    event.response,
+                    stage="FINAL",
+                    duration_ms=(perf_counter() - final_started_at) * 1000,
+                )
             elif event.type in (
                 "response.failed",
                 "response.incomplete",

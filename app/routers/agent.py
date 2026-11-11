@@ -199,6 +199,9 @@ async def chat_stream(
                                     conversation_id=conversation.id,
                                     as_of_date=requested_as_of,
                                     data_snapshot_ids=data_snapshot_ids,
+                                    model_name=data.get("model"),
+                                    prompt_version=data.get("prompt_version"),
+                                    tool_schema_version=data.get("tool_schema_version"),
                                 )
 
                             elif event_name == "tool_start":
@@ -432,6 +435,10 @@ async def get_agent_run_detail(
         "llm_calls": run.llm_calls,
         "input_tokens": run.input_tokens,
         "output_tokens": run.output_tokens,
+        "llm_call_metrics": run.llm_call_metrics or [],
+        "model_name": run.model_name,
+        "prompt_version": run.prompt_version,
+        "tool_schema_version": run.tool_schema_version,
         "as_of_date": run.as_of_date.isoformat() if run.as_of_date else None,
         "data_snapshot_ids": run.data_snapshot_ids or {},
         "error_code": run.error_code,

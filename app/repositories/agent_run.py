@@ -16,6 +16,9 @@ async def create_agent_run(
     conversation_id: str,
     as_of_date: date | None = None,
     data_snapshot_ids: dict[str, str | None] | None = None,
+    model_name: str | None = None,
+    prompt_version: str | None = None,
+    tool_schema_version: str | None = None,
 ) -> None:
     db.add(
         AgentRun(
@@ -24,6 +27,9 @@ async def create_agent_run(
             status="RUNNING",
             as_of_date=as_of_date,
             data_snapshot_ids=data_snapshot_ids,
+            model_name=model_name,
+            prompt_version=prompt_version,
+            tool_schema_version=tool_schema_version,
         )
     )
     await db.commit()
@@ -92,6 +98,7 @@ async def finish_agent_run(
     run.llm_calls = metrics.get("llm_calls", 0)
     run.input_tokens = metrics.get("input_tokens")
     run.output_tokens = metrics.get("output_tokens")
+    run.llm_call_metrics = metrics.get("llm_call_metrics")
 
     run.error_code = error_code
     run.error_message = error_message

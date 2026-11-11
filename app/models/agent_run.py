@@ -48,6 +48,10 @@ class AgentRun(Base):
 
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
+    llm_call_metrics: Mapped[list | None] = mapped_column(JSON)
+    model_name: Mapped[str | None] = mapped_column(String(120))
+    prompt_version: Mapped[str | None] = mapped_column(String(32))
+    tool_schema_version: Mapped[str | None] = mapped_column(String(32))
     as_of_date: Mapped[date | None] = mapped_column(Date)
     data_snapshot_ids: Mapped[dict | None] = mapped_column(JSON)
 

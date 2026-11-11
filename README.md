@@ -15,6 +15,7 @@
 - 기준일 이전 종료 경기만 사용한 투수 누적 지표와 불펜 후보 비교
 - 경기 날짜에 소속 구단의 상대팀과 PBP 관측 타자를 자동 구성해 후보 투수의 과거 직접 맞대결 조회
 - KBO 데이터 적재 상태와 출처 확인
+- 버전 고정 에이전트 평가 케이스와 실행 trace 채점
 - 투구 수·이닝·주자 상황에 대한 규칙 기반 교체 검토
 - SSE를 통한 Tool 실행 상태와 답변 텍스트 스트리밍
 - JWT 인증, 사용자별 대화 접근 제어, 대화 저장·복원
@@ -195,10 +196,51 @@ uv run alembic downgrade -1
 - 내려받은 파일을 먼저 dry-run 검증합니다: `uv run python -m scripts.import_kbo_plate_appearances data/private/kbo_pbp_2026_hf.parquet --season 2026 --source kbo_pbp_naver_sports_cc_by_4.0`. DB에 적재하려면 기존 DB 스키마와 migration 상태를 확인한 뒤 `--apply`를 추가합니다.
 - PBP 데이터셋은 [배포자 저장소](https://github.com/slothman3878/kbo_pbp_naver_sports)와 [데이터 카드](https://huggingface.co/datasets/slothman3878/kbo_playbyplay)에 명시된 출처·라이선스를 확인해야 합니다. 배포자는 Naver Sports 중계 API 기반이며 데이터셋 라이선스를 CC BY 4.0으로 표시합니다. 서비스 운영 전에는 원천 데이터의 상업적 사용 및 재배포 권한도 확인해야 합니다.
 - `as_of_date` 분석은 적재된 경기별 기록을 기준일 이전 종료 경기로 다시 집계합니다. 날짜 안의 경기 순서는 구분하지 않습니다.
+- 평가 데이터셋은 `evals/agent/v1.jsonl`에 버전 고정합니다. 아래 `validate`와 `grade`는 로컬 검증이며 LLM을 호출하지 않습니다. `run`은 실제 DB와 OpenAI API를 사용하고 토큰 비용이 발생할 수 있습니다. 실행 trace에는 답변과 Tool 인자가 담길 수 있어 `data/private/`에만 저장합니다.
 - 데이터의 출처와 적재 상태를 제공하지만, 이는 데이터의 정확성이나 최신성을 보증하지 않습니다.
 - `TEAM_NAME_UNIQUE`는 구단과 이름을 기준으로 연결한 잠정 ID입니다. 동명이인이나 매핑 근거가 불충분하면 비교에서 제외합니다.
 - `REVIEW_REQUIRED`는 최근 투구 부담을 추가 확인해야 한다는 신호이며 등판 불가 판정이 아닙니다.
 - `NO_HIGH_LOAD_FLAG`는 조회한 기록에서 높은 부담 신호가 없다는 뜻이며 출전 가능을 보장하지 않습니다.
 - 공개 가입은 기본값이 꺼져 있고, 켜더라도 클라이언트가 역할을 선택할 수 없으며 `COACH`만 생성됩니다. 다만 데모 가입에서는 구단을 직접 고르므로 운영 계정은 관리자 프로비저닝 또는 조직 초대 흐름이 필요합니다.
 - 불펜 비교는 확인 가능한 데이터에 기반한 참고 정보이며, 교체 성공 확률이나 실제 컨디션을 예측하지 않습니다.
+<<<<<<< HEAD
 - 상대 타순 직접 맞대결은 과거 관측 요약이며 미래 타석 결과를 예측하지 않습니다. PBP 데이터가 없는 경기의 타자는 자동 구성할 수 없고, 원천 데이터 범위 밖 경기와 당일 경기 결과는 맞대결 집계에 반영하지 않습니다.
+=======
+
+### 에이전트 평가 데이터셋
+
+```bash
+# JSONL 케이스 스키마와 중복 ID 확인 (외부 호출 없음)
+uv run python -m scripts.agent_eval validate
+
+# 실제 DB와 모델로 선택한 케이스 실행. OpenAI 토큰 사용량이 발생합니다.
+uv run python -m scripts.agent_eval run --case-id normal_pitcher_comparison
+
+# 민감한 실행 trace를 오프라인으로 채점
+uv run python -m scripts.agent_eval grade --traces data/private/agent_eval_traces.jsonl --report data/private/eval-report.json
+
+# 단가표가 있을 때 비용 추정도 계산 (가격은 배포자가 직접 확인해 입력)
+uv run python -m scripts.agent_eval grade --traces data/private/agent_eval_traces.jsonl --price-card data/private/model_pricing.json --report data/private/eval-report-priced.json
+
+# 프롬프트/모델 변경 전후 보고서 비교
+uv run python -m scripts.agent_eval compare --baseline data/private/baseline.json --candidate-report data/private/candidate.json
+```
+
+자동 채점은 Tool 선택/순서/인자, fixture 참조와 케이스에 고정 snapshot ID가 선언된 경우 그 일치 여부, 필수·금지 표현, 불확실성 표현을 확인합니다. 답변의 야구적 타당성과 근거 일치는 사람이 별도 검토해야 합니다. 실행 기록에는 모델명, 프롬프트·Tool schema 지문, 호출별 입력/캐시/출력 토큰과 지연시간을 저장합니다. 단가표가 없으면 비용 금액을 계산하지 않습니다. 가격표를 제공하면 가격표 버전과 단가 기준 추정 비용을 함께 보고합니다.
+
+가격표 형식은 모델별 100만 토큰당 USD입니다. 모델명은 실제 trace의 `model` 값과 일치해야 합니다.
+
+```json
+{
+  "version": "2026-11-11",
+  "unit": "USD_PER_1M_TOKENS",
+  "models": {
+    "모델명": {
+      "input_usd_per_million": "현재 입력 단가 숫자로 교체",
+      "cached_input_usd_per_million": "현재 cached 단가 숫자로 교체",
+      "output_usd_per_million": "현재 출력 단가 숫자로 교체"
+    }
+  }
+}
+```
+>>>>>>> 7aa6153 (feat: 에이전트 평가 데이터셋과 토큰 계측 추가)
