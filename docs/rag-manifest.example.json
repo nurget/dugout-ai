@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "documents": [
+    {
+      "document_id": "approved-rule-doc-2026",
+      "path": "data/private/rag/approved-rule-doc-2026.pdf",
+      "title": "문서 제목",
+      "source_url": "https://example.org/source-document",
+      "effective_date": "2026-01-01",
+      "license_name": "문서 사용을 허용하는 라이선스 또는 서면 허가",
+      "rights_basis": "라이선스 조항 또는 허가 기록의 URL/관리 ID",
+      "rights_verified": false,
+      "sha256": "파일의 SHA-256 64자리 소문자 16진수"
+    }
+  ]
+}

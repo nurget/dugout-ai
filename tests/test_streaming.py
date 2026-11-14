@@ -98,6 +98,33 @@ def test_standalone_workload_tool_is_only_available_for_workload_requests():
     }
 
 
+def test_public_knowledge_tool_is_scoped_to_document_questions_and_configuration():
+    from app.agent.tool_definitions import SEARCH_BASEBALL_KNOWLEDGE_TOOL_NAME
+
+    ordinary_tools = streaming.tools_for_message(
+        "양현종의 2026년 누적 성적을 보여줘.",
+        knowledge_enabled=True,
+    )
+    knowledge_tools = streaming.tools_for_message(
+        "인필드 플라이 규정을 설명해줘.",
+        knowledge_enabled=True,
+    )
+    disabled_tools = streaming.tools_for_message(
+        "인필드 플라이 규정을 설명해줘.",
+        knowledge_enabled=False,
+    )
+
+    assert SEARCH_BASEBALL_KNOWLEDGE_TOOL_NAME not in {
+        tool["name"] for tool in ordinary_tools
+    }
+    assert SEARCH_BASEBALL_KNOWLEDGE_TOOL_NAME in {
+        tool["name"] for tool in knowledge_tools
+    }
+    assert SEARCH_BASEBALL_KNOWLEDGE_TOOL_NAME not in {
+        tool["name"] for tool in disabled_tools
+    }
+
+
 @pytest.mark.asyncio
 async def test_authenticated_team_scope_is_provided_to_planning_model():
     client = SimpleNamespace(
@@ -392,3 +419,62 @@ async def test_stream_agent_emits_structured_bullpen_comparison(
         }],
         "withheld": [],
     }
+
+
+@pytest.mark.asyncio
+async def test_knowledge_search_is_executed_and_final_answer_requires_citations(monkeypatch):
+    from app.agent.tool_definitions import SEARCH_BASEBALL_KNOWLEDGE_TOOL_NAME
+
+    knowledge_call = FakeToolCall(
+        SEARCH_BASEBALL_KNOWLEDGE_TOOL_NAME,
+        '{"query":"인필드 플라이 규정"}',
+        "call_knowledge",
+    )
+    search = AsyncMock(return_value={
+        "ok": True,
+        "data": {
+            "query": "인필드 플라이 규정",
+            "result_count": 1,
+            "results": [{
+                "title": "KBO 규정집",
+                "source_url": "https://example.test/rules",
+                "effective_date": "2026-01-01",
+                "content": "문서 근거",
+            }],
+        },
+    })
+    monkeypatch.setattr(streaming, "search_public_baseball_knowledge", search)
+    monkeypatch.setattr(
+        streaming.settings,
+        "openai_public_knowledge_vector_store_id",
+        "vs_public",
+    )
+    client = SimpleNamespace(
+        vector_stores=SimpleNamespace(search=AsyncMock()),
+        responses=SimpleNamespace(create=AsyncMock(side_effect=[
+            response(knowledge_call),
+            response(finalize_call()),
+            final_stream("규정 설명"),
+        ])),
+    )
+
+    [event async for event in streaming.stream_agent(
+        message="인필드 플라이 규정을 설명해줘.",
+        session=None,
+        client=client,
+    )]
+
+    search.assert_awaited_once()
+    final_input = client.responses.create.call_args_list[2].kwargs["input"]
+    tool_outputs = [
+        item["output"] for item in final_input
+        if item.get("type") == "function_call_output"
+        and item.get("call_id") == "call_knowledge"
+    ]
+    assert tool_outputs
+    assert "https://example.test/rules" in tool_outputs[0]
+    developer_notes = [
+        item["content"] for item in final_input
+        if item.get("role") == "developer"
+    ]
+    assert any("source_url" in note for note in developer_notes)

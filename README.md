@@ -15,6 +15,7 @@
 - 기준일 이전 종료 경기만 사용한 투수 누적 지표와 불펜 후보 비교
 - 경기 날짜에 소속 구단의 상대팀과 PBP 관측 타자를 자동 구성해 후보 투수의 과거 직접 맞대결 조회
 - KBO 데이터 적재 상태와 출처 확인
+- 공개 규정·전술 문서에 대한 선택적 RAG 검색 및 출처 메타데이터 전달
 - 버전 고정 에이전트 평가 케이스와 실행 trace 채점
 - 투구 수·이닝·주자 상황에 대한 규칙 기반 교체 검토
 - SSE를 통한 Tool 실행 상태와 답변 텍스트 스트리밍
@@ -204,6 +205,51 @@ uv run alembic downgrade -1
 - 공개 가입은 기본값이 꺼져 있고, 켜더라도 클라이언트가 역할을 선택할 수 없으며 `COACH`만 생성됩니다. 다만 데모 가입에서는 구단을 직접 고르므로 운영 계정은 관리자 프로비저닝 또는 조직 초대 흐름이 필요합니다.
 - 불펜 비교는 확인 가능한 데이터에 기반한 참고 정보이며, 교체 성공 확률이나 실제 컨디션을 예측하지 않습니다.
 - 상대 타순 직접 맞대결은 과거 관측 요약이며 미래 타석 결과를 예측하지 않습니다. PBP 데이터가 없는 경기의 타자는 자동 구성할 수 없고, 원천 데이터 범위 밖 경기와 당일 경기 결과는 맞대결 집계에 반영하지 않습니다.
+
+### 공개 야구 문서 검색 (Beta)
+
+RAG의 검색·답변 흐름, 토큰 비용, 품질 지표와 면접 설명 예시는 [RAG 설계 개요](docs/rag-overview.md)를 참고하세요.
+
+규정·전술·용어 질문에 한해 OpenAI Vector Store에서 최대 3개 공개 문서 조각을 검색합니다. 선수 성적과 경기 기록은 기존 DB Tool을 사용합니다. Vector Store ID가 설정되지 않은 기본 설치에서는 이 기능이 비활성화되며, 일반 통계 질문에는 검색 Tool을 모델에 전달하지 않아 불필요한 도구 설명 토큰을 줄입니다. 검색 호출과 답변 생성의 입력 토큰은 기존 Agent 실행 이력에 기록됩니다. 검색 문맥은 답변 입력에 추가되므로 문서 길이·결과 수에 따라 입력 토큰이 증가할 수 있습니다.
+
+사용하려면 공개 배포 권한을 확인한 문서만 Vector Store에 등록하고, 각 파일에 `visibility=public` 필터용 속성을 지정해야 합니다. 답변 출처를 표시하려면 파일 속성에 `source_url`과 `effective_date`를 넣는 것을 권장합니다. 서버는 `visibility=public` 조건으로만 검색하며, URL이 없는 문서의 링크를 만들어내지 않도록 답변 지침을 전달합니다. 검색된 문서 본문은 신뢰된 지시가 아니라 인용할 데이터로 취급합니다.
+
+`.env`에 `OPENAI_PUBLIC_KNOWLEDGE_VECTOR_STORE_ID`를 설정하면 문서 검색이 켜집니다. KBO는 [공식 야구규칙을 포함한 2026 정기 간행물을 판매](https://www.koreabaseball.com/MediaNews/Notice/View.aspx?bdSe=11896)하고 홈페이지 자료의 무단전재·재배포를 금지한다고 안내하므로, KBO 자료는 별도 이용 허가나 명시적인 라이선스 확인 전까지 Vector Store에 업로드하지 않습니다. 구단 전용 문서 검색은 테넌트별 저장소와 권한 검증을 추가한 뒤 별도로 활성화해야 합니다.
+
+권리 검토를 통과한 문서는 `data/private/rag/`에 두고 [manifest 예시](docs/rag-manifest.example.json)를 복사해 파일별 HTTPS 출처, 효력일, 라이선스 근거, SHA-256을 기록합니다. 기본 검증은 외부 요청 없이 다음처럼 실행합니다:
+
+```bash
+uv run python -m scripts.ingest_public_knowledge path/to/manifest.json
+```
+
+기존 Vector Store로 파일을 실제 전송할 때만 `--apply`를 붙이고 `OPENAI_API_KEY`, `OPENAI_PUBLIC_KNOWLEDGE_VECTOR_STORE_ID`를 설정합니다. 이 실행은 외부 OpenAI 저장소를 변경합니다. 같은 문서 ID와 해시가 이미 있으면 건너뛰며, 같은 ID의 내용이 바뀌었으면 덮어쓰지 않고 중단합니다. 변경본은 새 Vector Store에 재색인한 뒤 설정 ID를 교체하는 배포를 권장합니다.
+
+RAG 시나리오는 `evals/rag/v1.jsonl`에 버전 고정합니다. 데이터 형식과 범위는 외부 호출 없이 확인합니다:
+
+```bash
+uv run python -m scripts.rag_eval validate
+```
+
+저장된 검색·답변 trace는 `data/private/` 아래 JSONL로 두고 `grade --traces`로 채점할 수 있습니다. 각 줄은 `case_id`, `visibility_filter`, `result_limit`, `retrieved_results`(visibility/title/source_url/effective_date/content), `answer`를 담습니다. 공개 필터, 최대 결과 수, 인용 URL/제목, 효력일, 무근거 답변 보류, 비공개 결과 차단을 자동 검사합니다. 실제 주장과 검색 근거의 의미상 일치는 사람의 검토가 필요하며, 아직 운영 코퍼스에 대한 실측 정확도 결과는 없습니다. 테스트 fixture는 synthetic 전용이며 실제 KBO 규정 사실을 포함하지 않습니다.
+
+### 실시간 엔트리·컨디션 (Beta 준비)
+
+현재 추천 결과는 과거 투구 기록의 부담 신호만 보여주며, 당일 1군 등록 상태·경기 라인업·부상·실제 컨디션은 조회하지 않습니다. KBO [등록 현황](https://www.koreabaseball.com/Player/RegisterAll.aspx) 페이지는 날짜별 선수 등록 현황을, [이용약관](https://www.koreabaseball.com/Etc/Policy.aspx)은 공식 API 또는 사전 서면 동의 없는 자동 수집 제한을 안내합니다. 허가된 공식 API나 서면 승인을 받기 전까지 해당 페이지를 자동 수집하지 않으며, 실시간 제공 중이라고 표시하지 않습니다.
+
+연동 승인 후에는 등록 현황과 경기 라인업을 서로 다른 데이터로 취급하고, 제공 주체·관측 시각·마지막 갱신 시각·응답 지연·경기 날짜를 함께 표시해야 합니다. 데이터가 오래됐거나 조회 실패 시에는 상태를 추정하지 말고 "확인 불가"로 보여줍니다. 등록 명단만으로 출전 가능이나 건강 상태를 추론하지 않습니다.
+
+### 추천 순위 평가
+
+`evals/recommendation/v1.jsonl`은 코치가 확인한 후보 중 전문가가 적절하다고 검토한 후보가 추천 순위에서 어디에 놓이는지 평가합니다. Top-1 허용률, MRR, 후보 포함률을 계산하며 실제 경기 성적이나 승률 예측 정확도를 뜻하지 않습니다. 실행 방법:
+
+```bash
+uv run python -m scripts.recommendation_eval validate
+uv run python -m scripts.recommendation_eval run
+```
+
+현재 공개 케이스는 기능 계약용 synthetic 데이터 2건뿐이므로 실제 추천 정확도 지표는 `n=0`으로 보고됩니다. 실제 라벨·입력 snapshot은 구단의 사전 확인 후보군, 기준일, 데이터 snapshot, 후보군 출처, 검토자, 라벨 프로토콜을 기록해 `data/private/`에 권한 `0600`으로 저장해야 합니다. synthetic 성적은 실제 성과 집계에서 제외합니다.
+
+비교 카드의 코치 검토는 이 평가 데이터 수집을 위한 초벌 피드백이며, 독립 검토와 라벨 프로토콜 승인 전에는 정답 라벨이나 정확도 성적으로 계산하지 않습니다. 현재 검토 결과는 원본 추천과 데이터 snapshot에 묶어 DB에 저장되며, 평가 JSONL로 공개 내보내거나 성적에 자동 반영하지 않습니다.
 
 ### 에이전트 평가 데이터셋
 

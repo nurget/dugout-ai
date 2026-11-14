@@ -1,4 +1,5 @@
 FINALIZE_ANALYSIS_TOOL_NAME = "finalize_analysis"
+SEARCH_BASEBALL_KNOWLEDGE_TOOL_NAME = "search_baseball_knowledge"
 
 FINALIZE_ANALYSIS_DEFINITION = {
     "type": "function",
@@ -11,6 +12,28 @@ FINALIZE_ANALYSIS_DEFINITION = {
         "type": "object",
         "properties": {},
         "required": [],
+        "additionalProperties": False,
+    },
+    "strict": True,
+}
+
+SEARCH_BASEBALL_KNOWLEDGE_DEFINITION = {
+    "type": "function",
+    "name": SEARCH_BASEBALL_KNOWLEDGE_TOOL_NAME,
+    "description": (
+        "공개 KBO 규정, 야구 전술, 용어 설명 문서를 검색한다. "
+        "선수 성적이나 경기별 기록은 다른 통계 도구를 사용한다. "
+        "검색 결과의 출처 정보와 문서 내용만 근거로 답하고, 출처를 함께 표시한다."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "규정·전술·용어에 대한 검색 질문",
+            },
+        },
+        "required": ["query"],
         "additionalProperties": False,
     },
     "strict": True,
@@ -78,6 +101,7 @@ COMPARE_BULLPEN_CANDIDATES_DEFINITION = {
 
 AGENT_TOOLS = [
     FINALIZE_ANALYSIS_DEFINITION,
+    SEARCH_BASEBALL_KNOWLEDGE_DEFINITION,
     {
         "type": "function",
         "name": "get_game_state",
