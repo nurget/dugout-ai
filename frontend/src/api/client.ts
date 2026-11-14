@@ -19,6 +19,7 @@ export type MatchupAnalysis = {
 };
 export type BullpenComparisonResult = {
   type: "bullpen_comparison";
+  run_id?: string;
   team_code: string;
   as_of_date: string;
   data_through_date?: string | null;
@@ -29,6 +30,12 @@ export type BullpenComparisonResult = {
   availability_verified: boolean;
   candidates: Array<{ pitcher_id: string; pitcher_name: string; k_minus_bb_pct: number; games?: number | null; batters_faced: number; data_through_date?: string | null; identity_status?: string | null; identity_source?: string | null; pitches_last_3_days: number | null; consecutive_days: number | null; workload_status: string }>;
   withheld: Array<{ pitcher_id: string; pitcher_name?: string; reason: string }>;
+};
+export type RecommendationReview = {
+  run_id: string;
+  outcome: "ACCEPTABLE_SET" | "NONE_ACCEPTABLE" | "NEEDS_MORE_INFO";
+  acceptable_candidate_ids: string[];
+  reviewed_at: string;
 };
 export type SavedMessage = { id: string; role: "user" | "assistant"; content: string; created_at: string; analysis_results: BullpenComparisonResult[] };
 type LoginResponse = { access_token: string; token_type: "bearer"; expires_in: number };
@@ -82,6 +89,8 @@ export const api = {
   matchupGames: (gameDate: string) => request<{ team_code: TeamCode; game_date: string; count: number; data: MatchupGame[]; note: string }>(`/api/teams/me/matchup-games?season=2026&game_date=${encodeURIComponent(gameDate)}`),
   pitcherMatchups: (payload: { season: number; as_of_date: string; opponent_team_code: string; pitcher_ids: string[]; batter_ids: string[] }) => request<MatchupAnalysis>("/api/teams/me/pitcher-matchups", { method: "POST", body: JSON.stringify(payload) }),
   messages: (id: string) => request<ConversationMessagesResponse>(`/api/agent/conversations/${id}/messages`),
+  recommendationReview: (runId: string) => request<{ review: RecommendationReview | null }>(`/api/agent/runs/${encodeURIComponent(runId)}/recommendation-review`),
+  saveRecommendationReview: (runId: string, payload: { outcome: RecommendationReview["outcome"]; acceptable_candidate_ids: string[] }) => request<{ review: RecommendationReview }>(`/api/agent/runs/${encodeURIComponent(runId)}/recommendation-review`, { method: "PUT", body: JSON.stringify(payload) }),
 };
 
 export function apiUrl(path: string) { return `${baseUrl}${path}`; }

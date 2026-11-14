@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -16,6 +16,7 @@ from app.core.auth import CurrentUser
 from app.core.config import settings
 from app.db.session import get_db, get_session_factory
 from app.schemas.chat import ChatRequest
+from app.schemas.recommendation_review import RecommendationReviewRequest
 from app.utils.sse import format_sse
 
 from app.repositories.conversation import (
@@ -34,12 +35,18 @@ from app.repositories.agent_run import (
     get_agent_run,
     get_agent_run_tools,
 )
+from app.repositories.recommendation_review import (
+    get_recommendation_review,
+    upsert_recommendation_review,
+)
 
 from app.repositories.conversation_owner import (
     assign_conversation_owner,
     require_conversation_access,
 )
 from app.services.data_catalog import get_latest_dataset_statuses
+from app.services.team_codes import normalize_official_team_code
+from app.models.agent_run import AgentRun
 
 
 logger = logging.getLogger(__name__)
@@ -239,6 +246,7 @@ async def chat_stream(
                                 )
 
                             elif event_name == "analysis_result":
+                                data = {**data, "run_id": run_id}
                                 analysis_results.append(data)
 
                             elif event_name == "completed":
@@ -459,3 +467,113 @@ async def get_agent_run_detail(
             for item in tools
         ],
     }
+
+
+async def _get_reviewable_recommendation(
+    *,
+    session: AsyncSession,
+    run_id: str,
+    current_user,
+) -> tuple[AgentRun, dict]:
+    if current_user.role not in {"COACH", "MANAGER"}:
+        raise HTTPException(status_code=403, detail="코치 또는 관리자만 평가할 수 있습니다.")
+    run = await session.get(AgentRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Agent 실행 기록을 찾을 수 없습니다.")
+    await require_conversation_access(
+        session=session,
+        conversation_id=run.conversation_id,
+        user_id=str(current_user.id),
+        team_code=current_user.team_code,
+    )
+    if run.status != "COMPLETED":
+        raise HTTPException(status_code=409, detail="완료된 추천만 평가할 수 있습니다.")
+
+    messages = await get_messages(session, run.conversation_id)
+    for message in messages:
+        if message.role != "assistant":
+            continue
+        for result in message.analysis_results or []:
+            if (
+                result.get("type") == "bullpen_comparison"
+                and result.get("run_id") == run_id
+            ):
+                if normalize_official_team_code(
+                    result.get("team_code", "")
+                ) != normalize_official_team_code(current_user.team_code):
+                    raise HTTPException(status_code=404, detail="평가할 추천을 찾을 수 없습니다.")
+                if not result.get("candidates"):
+                    raise HTTPException(status_code=409, detail="평가 가능한 후보 비교 결과가 없습니다.")
+                return run, result
+    raise HTTPException(status_code=404, detail="평가할 추천 결과를 찾을 수 없습니다.")
+
+
+def _serialize_recommendation_review(review) -> dict:
+    return {
+        "run_id": review.run_id,
+        "outcome": review.outcome,
+        "acceptable_candidate_ids": review.acceptable_candidate_ids,
+        "reviewed_at": review.updated_at.isoformat(),
+    }
+
+
+@router.get("/runs/{run_id}/recommendation-review")
+async def get_run_recommendation_review(
+    run_id: UUID,
+    session: SessionDep,
+    current_user: CurrentUser,
+):
+    await _get_reviewable_recommendation(
+        session=session,
+        run_id=str(run_id),
+        current_user=current_user,
+    )
+    review = await get_recommendation_review(
+        session,
+        run_id=str(run_id),
+        reviewer_user_id=str(current_user.id),
+    )
+    return {"review": _serialize_recommendation_review(review) if review else None}
+
+
+@router.put("/runs/{run_id}/recommendation-review")
+async def save_run_recommendation_review(
+    run_id: UUID,
+    payload: RecommendationReviewRequest,
+    session: SessionDep,
+    current_user: CurrentUser,
+):
+    run, result = await _get_reviewable_recommendation(
+        session=session,
+        run_id=str(run_id),
+        current_user=current_user,
+    )
+    candidate_ids = {
+        str(candidate["pitcher_id"])
+        for candidate in result["candidates"]
+    }
+    requested_ids = set(payload.acceptable_candidate_ids)
+    if not requested_ids.issubset(candidate_ids):
+        raise HTTPException(
+            status_code=422,
+            detail="평가 대상에는 비교 결과에 포함된 후보만 선택할 수 있습니다.",
+        )
+    review = await upsert_recommendation_review(
+        session,
+        run_id=str(run_id),
+        reviewer_user_id=str(current_user.id),
+        team_code=result["team_code"],
+        as_of_date=date.fromisoformat(result["as_of_date"]),
+        outcome=payload.outcome,
+        acceptable_candidate_ids=payload.acceptable_candidate_ids,
+        recommendation_snapshot={
+            "team_code": result["team_code"],
+            "as_of_date": result["as_of_date"],
+            "comparison_status": result.get("comparison_status"),
+            "coverage": result.get("coverage"),
+            "candidates": result["candidates"],
+            "withheld": result.get("withheld", []),
+        },
+        data_snapshot_ids=run.data_snapshot_ids,
+    )
+    return {"review": _serialize_recommendation_review(review)}

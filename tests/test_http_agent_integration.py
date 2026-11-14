@@ -65,6 +65,23 @@ async def test_authenticated_sse_persists_messages_and_run(
             "error": None,
             "duration_ms": 1.5,
         }
+        yield "analysis_result", {
+            "type": "bullpen_comparison",
+            "team_code": "HT",
+            "as_of_date": "2026-11-07",
+            "comparison_status": "COMPARABLE",
+            "availability_verified": False,
+            "candidates": [{
+                "pitcher_id": "p1",
+                "pitcher_name": "테스트 투수",
+                "k_minus_bb_pct": 10.0,
+                "batters_faced": 100,
+                "pitches_last_3_days": 0,
+                "consecutive_days": 0,
+                "workload_status": "NO_HIGH_LOAD_FLAG",
+            }],
+            "withheld": [],
+        }
         yield "answer_delta", {"delta": "검증된 최종 답변"}
         yield "completed", {
             "run_id": run_id,
@@ -201,6 +218,7 @@ async def test_authenticated_sse_persists_messages_and_run(
                 "started",
                 "tool_start",
                 "tool_result",
+                "analysis_result",
                 "answer_delta",
                 "completed",
             ]
@@ -214,6 +232,8 @@ async def test_authenticated_sse_persists_messages_and_run(
             assert [
                 item["content"] for item in messages.json()["messages"]
             ] == ["경기 상황을 분석해줘.", "검증된 최종 답변"]
+            saved_recommendation = messages.json()["messages"][1]["analysis_results"][0]
+            assert saved_recommendation["run_id"] == run_id
 
             run = await client.get(
                 f"/api/agent/runs/{run_id}",

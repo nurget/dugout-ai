@@ -1,0 +1,22 @@
+{
+  "notice": "SYNTHETIC TEST DATA ONLY. These pitchers, stats, and labels are invented and must not be reported as KBO evaluation results.",
+  "fixtures": [
+    {
+      "fixture_ref": "fixture:synthetic-bullpen-ranking-v1",
+      "record_type": "SYNTHETIC",
+      "recommendation_input": {
+        "team_code": "SYN",
+        "season_pitchers": [
+          {"pitcher_id": "P1", "pitcher_name": "Synthetic A", "team_code": "SYN", "k_minus_bb_pct": 18.0, "batters_faced": 220},
+          {"pitcher_id": "P2", "pitcher_name": "Synthetic B", "team_code": "SYN", "k_minus_bb_pct": 22.0, "batters_faced": 210},
+          {"pitcher_id": "P3", "pitcher_name": "Synthetic C", "team_code": "SYN", "k_minus_bb_pct": 30.0, "batters_faced": 190}
+        ],
+        "workloads": [
+          {"pitcher_id": "P1", "workload_status": "NO_HIGH_LOAD_FLAG", "pitches_last_3_days": 12},
+          {"pitcher_id": "P2", "workload_status": "NO_HIGH_LOAD_FLAG", "pitches_last_3_days": 8},
+          {"pitcher_id": "P3", "workload_status": "REVIEW_REQUIRED", "pitches_last_3_days": 55}
+        ]
+      }
+    }
+  ]
+}
