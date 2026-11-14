@@ -20,7 +20,7 @@ SYSTEM_PROMPT = """
 14. 분석 기준일은 서버가 전달한 as_of_date를 따릅니다. 기준일 이후 데이터로 과거 상황을 설명하지 않습니다.
 
 [불펜 투구 부담]
-- 최근 투구 부담은 get_bullpen_workload로 확인합니다.
+- get_bullpen_workload는 사용자가 최근 부담·휴식·등판 가능성을 물을 때 호출합니다.
 - REVIEW_REQUIRED는 추가 검토가 필요하다는 뜻이며 등판 불가 확정이 아닙니다.
 - NO_HIGH_LOAD_FLAG는 출전 가능 확정이 아닙니다.
 - AMBIGUOUS_IDENTITY인 선수는 서로 다른 선수의 기록을 합산하지 않습니다.

@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from time import perf_counter
 from typing import Any, Callable
 
@@ -20,6 +20,31 @@ from app.core.config import settings
 from app.tools.registry import execute_tool
 
 logger = logging.getLogger(__name__)
+
+AS_OF_TOOLS = {
+    "search_season_pitchers",
+    "compare_pitchers",
+    "compare_bullpen_candidates",
+}
+WORKLOAD_INTENT_TERMS = (
+    "최근 투구", "투구 부담", "투구수", "투구 수", "휴식", "연투",
+    "등판 가능", "등판시켜", "출전 가능", "불펜 가용", "가용성", "컨디션",
+)
+
+
+def tools_for_message(message: str) -> list[dict[str, Any]]:
+    """Expose standalone workload lookup only for workload/availability requests."""
+    normalized = message.casefold()
+    asks_about_workload = any(term in normalized for term in WORKLOAD_INTENT_TERMS)
+    unavailable_tools = set()
+    if not asks_about_workload:
+        unavailable_tools.add("get_bullpen_workload")
+    if "불펜 후보" in normalized:
+        unavailable_tools.add("compare_pitchers")
+    return [
+        tool for tool in AGENT_TOOLS
+        if tool.get("name") not in unavailable_tools
+    ]
 
 
 def record_response_usage(
@@ -84,14 +109,33 @@ async def stream_agent(
     history: list[dict[str, str]] | None = None,
     context: AgentContext | None = None,
     on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
+    tool_executor: Callable[..., Awaitable[dict[str, Any]]] | None = None,
 ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
     conversation: list[Any] = build_conversation_input(
         message=message,
         history=history,
     )
+    if context and context.team_code:
+        date_context = (
+            f" 분석 기준일은 {context.as_of_date.isoformat()}입니다."
+            if context.as_of_date else ""
+        )
+        conversation.insert(0, {
+            "role": "developer",
+            "content": (
+                f"인증된 구단은 {context.team_code}입니다.{date_context} "
+                "팀 전용 데이터는 이 구단 범위만 "
+                "조회하고 답변하세요. 다른 구단 데이터를 요청하면 Tool을 호출하지 말고 "
+                "권한 범위를 안내하세요."
+            ),
+        })
+    available_tools = tools_for_message(message)
+    execute_tool_call = tool_executor or execute_tool
     versions = agent_versions(settings.openai_model)
     metrics = AgentMetrics(versions=versions)
     answer_started = False
+    used_as_of_tool = False
+    used_simulation_tool = False
     final_round = MAX_TOOL_ROUNDS + 1
 
     yield "started", {
@@ -109,7 +153,7 @@ async def stream_agent(
                 model=settings.openai_model,
                 instructions=SYSTEM_PROMPT,
                 input=conversation,
-                tools=AGENT_TOOLS,
+                tools=available_tools,
                 tool_choice="required",
                 parallel_tool_calls=False,
                 max_output_tokens=1024,
@@ -156,6 +200,11 @@ async def stream_agent(
                     finalize_requested = True
                     continue
 
+                if tool_call.name in AS_OF_TOOLS:
+                    used_as_of_tool = True
+                if tool_call.name == "simulate_pitching_decision":
+                    used_simulation_tool = True
+
                 yield "tool_start", {
                     "tool": tool_call.name,
                     "round": round_number,
@@ -169,7 +218,7 @@ async def stream_agent(
                             "Tool 인자는 JSON 객체여야 합니다."
                         )
                     result = await asyncio.wait_for(
-                        execute_tool(
+                        execute_tool_call(
                             session=session,
                             tool_name=tool_call.name,
                             arguments=arguments,
@@ -225,12 +274,30 @@ async def stream_agent(
                 final_round = round_number + 1
                 break
 
+        final_notes = []
+        if context and context.as_of_date and used_as_of_tool:
+            final_notes.append(
+                f"분석 기준일은 {context.as_of_date.isoformat()}입니다. "
+                "최종 답변에 기준일을 명시하고, Tool 결과의 data_through_date와 "
+                "date_boundary를 따라 데이터 종료일과 기준일 당일 제외 여부를 설명하세요."
+            )
+        if used_simulation_tool:
+            final_notes.append(
+                "시뮬레이션은 사용자가 입력한 가상 상황에 대한 규칙 평가입니다. "
+                "최종 답변에 가상 분석임을 밝히고 실제 경기 확인이나 승률 예측처럼 표현하지 마세요."
+            )
+        if final_notes:
+            conversation.append({
+                "role": "developer",
+                "content": " ".join(final_notes),
+            })
+
         final_started_at = perf_counter()
         final_stream = await client.responses.create(
             model=settings.openai_model,
             instructions=SYSTEM_PROMPT,
             input=conversation,
-            tools=AGENT_TOOLS,
+            tools=available_tools,
             tool_choice="none",
             parallel_tool_calls=False,
             max_output_tokens=2048,
