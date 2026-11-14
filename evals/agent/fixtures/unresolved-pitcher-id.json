@@ -1,0 +1,17 @@
+{
+  "fixture_ref": "fixture:unresolved-pitcher-id-v1",
+  "snapshot_key": "eval_fixture:unresolved_pitcher_id",
+  "tools": {
+    "search_season_pitchers": {
+      "data": {
+        "as_of_date": "2026-06-30",
+        "data_through_date": "2026-06-29",
+        "date_boundary": "game_date < as_of_date; all games on as_of_date are excluded",
+        "coverage": {"status": "COMPLETE"},
+        "pitchers": [],
+        "withheld": [],
+        "note": "요청한 이름과 일치하는 선수 검색 결과가 없습니다."
+      }
+    }
+  }
+}

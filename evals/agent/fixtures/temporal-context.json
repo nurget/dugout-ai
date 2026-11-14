@@ -1,0 +1,35 @@
+{
+  "fixture_ref": "fixture:temporal-context-v1",
+  "snapshot_key": "eval_fixture:temporal_context",
+  "tools": {
+    "search_season_pitchers": {
+      "data": {
+        "as_of_date": "2026-06-30",
+        "data_through_date": "2026-06-29",
+        "date_boundary": "game_date < as_of_date; all games on as_of_date are excluded",
+        "coverage": {"status": "COMPLETE"},
+        "pitchers": [
+          {"pitcher_id": "fixture-401", "pitcher_name": "가상 투수 A", "team_code": "KIA", "identity_status": "VERIFIED"},
+          {"pitcher_id": "fixture-402", "pitcher_name": "가상 투수 B", "team_code": "KIA", "identity_status": "VERIFIED"}
+        ]
+      }
+    },
+    "compare_bullpen_candidates": {
+      "data": {
+        "team_code": "KIA",
+        "as_of_date": "2026-06-30",
+        "data_through_date": "2026-06-29",
+        "date_boundary": "game_date < as_of_date; all games on as_of_date are excluded",
+        "comparison_status": "COMPARABLE",
+        "availability_verified": false,
+        "role_verified": false,
+        "ranking": [
+          {"pitcher_id": "fixture-401", "pitcher_name": "가상 투수 A", "k_minus_bb_pct": 18.2, "games": 8, "batters_faced": 120, "data_through_date": "2026-06-29", "identity_status": "VERIFIED", "identity_source": "FIXTURE", "pitches_last_3_days": 18, "consecutive_days": 1, "workload_status": "NO_HIGH_LOAD_FLAG"},
+          {"pitcher_id": "fixture-402", "pitcher_name": "가상 투수 B", "k_minus_bb_pct": 12.5, "games": 7, "batters_faced": 96, "data_through_date": "2026-06-29", "identity_status": "VERIFIED", "identity_source": "FIXTURE", "pitches_last_3_days": 42, "consecutive_days": 2, "workload_status": "REVIEW_REQUIRED"}
+        ],
+        "withheld": [],
+        "limitations": ["후보 비교는 실제 엔트리나 등판 가능 여부를 확인하지 않습니다."]
+      }
+    }
+  }
+}

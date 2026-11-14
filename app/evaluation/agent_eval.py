@@ -51,6 +51,7 @@ class AnswerExpectations(StrictModel):
     required_contains: list[str] = Field(default_factory=list)
     forbidden_contains: list[str] = Field(default_factory=list)
     uncertainty_groups: list[list[str]] = Field(default_factory=list)
+    require_as_of_boundary: bool = False
 
 
 class EvalContext(StrictModel):
@@ -303,6 +304,30 @@ def grade_case(case: EvalCase, trace: EvalTrace) -> dict[str, Any]:
         add(f"uncertainty_{index}", bool(found),
             f"불확실성 표현 확인: {', '.join(found)}" if found
             else f"필요한 불확실성 표현 중 하나가 필요: {' / '.join(group)}")
+
+    if case.answer_expectations.require_as_of_boundary:
+        as_of_date = case.context.as_of_date
+        date_found = False
+        if as_of_date:
+            year, month, day = as_of_date.split("-")
+            date_variants = (
+                as_of_date,
+                f"{year}년 {int(month)}월 {int(day)}일",
+                f"{int(month)}월 {int(day)}일",
+            )
+            date_found = any(_normalized(value) in answer for value in date_variants)
+        add("answer_as_of_date", date_found,
+            "답변에 분석 기준일 표시" if date_found
+            else f"답변에 분석 기준일({as_of_date})이 없음")
+
+        same_day_exclusion = bool(re.search(
+            r"(?:당일|그날|해당일).{0,24}(?:제외|빼|반영하지|포함하지)|"
+            r"(?:제외|빼|반영하지|포함하지).{0,24}(?:당일|그날|해당일)",
+            answer,
+        ))
+        add("answer_same_day_exclusion", same_day_exclusion,
+            "기준일 당일 경기 제외를 답변에서 설명" if same_day_exclusion
+            else "기준일 당일 경기 제외 설명이 없음")
 
     return {
         "case_id": case.case_id,

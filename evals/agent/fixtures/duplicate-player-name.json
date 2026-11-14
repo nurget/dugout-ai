@@ -1,0 +1,19 @@
+{
+  "fixture_ref": "fixture:duplicate-player-name-v1",
+  "snapshot_key": "eval_fixture:duplicate_player_name",
+  "tools": {
+    "search_season_pitchers": {
+      "data": {
+        "as_of_date": "2026-06-30",
+        "data_through_date": "2026-06-29",
+        "date_boundary": "game_date < as_of_date; all games on as_of_date are excluded",
+        "coverage": {"status": "COMPLETE"},
+        "pitchers": [
+          {"pitcher_id": "fixture-101", "pitcher_name": "박민수", "team_code": "KIA", "identity_status": "AMBIGUOUS"},
+          {"pitcher_id": "fixture-202", "pitcher_name": "박민수", "team_code": "KIA", "identity_status": "AMBIGUOUS"}
+        ],
+        "note": "동일한 이름으로 선수 ID 두 건이 검색되었습니다."
+      }
+    }
+  }
+}

@@ -203,9 +203,7 @@ uv run alembic downgrade -1
 - `NO_HIGH_LOAD_FLAG`는 조회한 기록에서 높은 부담 신호가 없다는 뜻이며 출전 가능을 보장하지 않습니다.
 - 공개 가입은 기본값이 꺼져 있고, 켜더라도 클라이언트가 역할을 선택할 수 없으며 `COACH`만 생성됩니다. 다만 데모 가입에서는 구단을 직접 고르므로 운영 계정은 관리자 프로비저닝 또는 조직 초대 흐름이 필요합니다.
 - 불펜 비교는 확인 가능한 데이터에 기반한 참고 정보이며, 교체 성공 확률이나 실제 컨디션을 예측하지 않습니다.
-<<<<<<< HEAD
 - 상대 타순 직접 맞대결은 과거 관측 요약이며 미래 타석 결과를 예측하지 않습니다. PBP 데이터가 없는 경기의 타자는 자동 구성할 수 없고, 원천 데이터 범위 밖 경기와 당일 경기 결과는 맞대결 집계에 반영하지 않습니다.
-=======
 
 ### 에이전트 평가 데이터셋
 
@@ -216,8 +214,11 @@ uv run python -m scripts.agent_eval validate
 # 현재 DB fingerprint 출력 (OpenAI 호출 없음; 케이스의 snapshot pin에 사용)
 uv run python -m scripts.agent_eval snapshot
 
-# 실제 DB와 모델로 선택한 케이스 실행. OpenAI 토큰 사용량이 발생합니다.
+# 케이스에 고정한 DB/fixture와 실제 모델로 평가 실행. OpenAI 토큰 사용량이 발생합니다.
 uv run python -m scripts.agent_eval run --case-id normal_pitcher_comparison
+
+# 여러 케이스를 한 번에 실행하려면 --case-id를 반복합니다.
+uv run python -m scripts.agent_eval run --case-id authenticated_team_scope --case-id as_of_date_no_leakage --case-id prompt_injection_in_source --traces data/private/critical-traces.jsonl
 
 # 민감한 실행 trace를 오프라인으로 채점
 uv run python -m scripts.agent_eval grade --traces data/private/agent_eval_traces.jsonl --report data/private/eval-report.json
@@ -230,6 +231,8 @@ uv run python -m scripts.agent_eval compare --baseline data/private/baseline.jso
 ```
 
 자동 채점은 Tool 선택/순서/인자, fixture 참조와 케이스에 고정 snapshot ID가 선언된 경우 그 일치 여부, 필수·금지 표현, 불확실성 표현을 확인합니다. 답변의 야구적 타당성과 근거 일치는 사람이 별도 검토해야 합니다. 실행 기록에는 모델명, 프롬프트·Tool schema 지문, 호출별 입력/캐시/출력 토큰과 지연시간을 저장합니다. 단가표가 없으면 비용 금액을 계산하지 않습니다. 가격표를 제공하면 가격표 버전과 단가 기준 추정 비용을 함께 보고합니다.
+
+고정 fixture는 `evals/agent/fixtures/`에 저장하고 파일 SHA-256으로 내용 변경 여부를 확인합니다. 실제 DB를 쓰는 케이스는 DB snapshot ID를 먼저 고정하며, fixture 파일만 쓰는 케이스는 별도 DB 데이터 없이 재생합니다.
 
 가격표 형식은 모델별 100만 토큰당 USD입니다. 모델명은 실제 trace의 `model` 값과 일치해야 합니다.
 
@@ -246,4 +249,3 @@ uv run python -m scripts.agent_eval compare --baseline data/private/baseline.jso
   }
 }
 ```
->>>>>>> 7aa6153 (feat: 에이전트 평가 데이터셋과 토큰 계측 추가)

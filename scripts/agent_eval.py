@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 from datetime import date
@@ -24,7 +25,9 @@ from app.evaluation.agent_eval import (
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET = ROOT / "evals" / "agent" / "v1.jsonl"
+FIXTURE_DIR = ROOT / "evals" / "agent" / "fixtures"
 PRIVATE_DIR = (ROOT / "data" / "private").resolve()
+NO_DATA_FIXTURES = {"no-data-required", "no-live-game-required"}
 
 
 def _jsonl_write(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -35,6 +38,33 @@ def _jsonl_write(path: Path, rows: list[dict[str, Any]]) -> None:
         for row in rows:
             output.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
     os.chmod(path, 0o600)
+
+
+def _load_eval_fixture(case: EvalCase) -> tuple[dict[str, Any], str] | None:
+    for path in sorted(FIXTURE_DIR.glob("*.json")):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("fixture_ref") == case.fixture_ref:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            return payload, f"sha256:{digest}"
+    return None
+
+
+def _fixture_tool_executor(fixture: dict[str, Any]):
+    async def execute_fixture_tool(*, session, tool_name, arguments, context):
+        tool_fixture = fixture.get("tools", {}).get(tool_name)
+        if tool_fixture is None:
+            return {
+                "ok": False,
+                "error": {
+                    "code": "FIXTURE_TOOL_NOT_CONFIGURED",
+                    "message": "이 평가 fixture에 정의되지 않은 Tool입니다.",
+                },
+            }
+        if tool_fixture.get("ok") is False:
+            return tool_fixture
+        return {"ok": True, "data": tool_fixture["data"]}
+
+    return execute_fixture_tool
 
 
 async def _run_case(case: EvalCase) -> EvalTrace:
@@ -55,15 +85,23 @@ async def _run_case(case: EvalCase) -> EvalTrace:
     metrics = TraceMetrics()
     cached_counts: list[int] = []
     run_status = "FAILED"
+    fixture_entry = _load_eval_fixture(case)
+    fixture = fixture_entry[0] if fixture_entry else None
+    fixture_snapshot = fixture_entry[1] if fixture_entry else None
 
     def capture_tool_call(name: str, arguments: dict[str, Any]) -> None:
         calls.append(TraceToolCall(name=name, arguments=arguments))
 
     async with AsyncSessionLocal() as session:
-        statuses = await get_latest_dataset_statuses(session)
-        snapshots = {row["dataset"]: row["snapshot_id"] for row in statuses}
-        snapshots["eval_fixture:database"] = await database_fixture_snapshot_id(session)
-        if not case.expected_data_snapshot_ids:
+        if fixture:
+            snapshots[fixture["snapshot_key"]] = fixture_snapshot
+        elif case.fixture_ref in NO_DATA_FIXTURES:
+            snapshots = {}
+        else:
+            statuses = await get_latest_dataset_statuses(session)
+            snapshots = {row["dataset"]: row["snapshot_id"] for row in statuses}
+            snapshots["eval_fixture:database"] = await database_fixture_snapshot_id(session)
+        if not case.expected_data_snapshot_ids and not fixture and case.fixture_ref not in NO_DATA_FIXTURES:
             raise RuntimeError(
                 f"{case.case_id}: 실제 실행 전에 expected_data_snapshot_ids를 pin해야 합니다."
             )
@@ -97,6 +135,7 @@ async def _run_case(case: EvalCase) -> EvalTrace:
                 client=client,
                 context=context,
                 on_tool_call=capture_tool_call,
+                tool_executor=_fixture_tool_executor(fixture) if fixture else None,
             ):
                 if event_name == "started":
                     versions = {
@@ -157,12 +196,13 @@ async def _run_case(case: EvalCase) -> EvalTrace:
 
 async def _run_live(cases: list[EvalCase], output: Path) -> None:
     traces = []
+    _jsonl_write(output, traces)
     for index, case in enumerate(cases, 1):
         print(f"[{index}/{len(cases)}] {case.case_id}: 실행 중")
         trace = await _run_case(case)
         traces.append(trace.model_dump(mode="json"))
+        _jsonl_write(output, traces)
         print(f"[{index}/{len(cases)}] {case.case_id}: {trace.run_status}")
-    _jsonl_write(output, traces)
     print(f"민감한 실행 trace 저장: {output}")
 
 

@@ -14,6 +14,7 @@ from app.evaluation.agent_eval import (
     grade_dataset,
     load_dataset,
 )
+from scripts.agent_eval import _fixture_tool_executor, _load_eval_fixture
 
 
 DATASET = Path(__file__).resolve().parents[1] / "evals" / "agent" / "v1.jsonl"
@@ -33,6 +34,37 @@ def test_versioned_dataset_has_unique_cases_and_human_review_labels():
     assert all(case.human_review for case in cases)
 
 
+@pytest.mark.asyncio
+async def test_prompt_injection_fixture_is_hash_pinned_and_replayed_without_db():
+    case = next(case for case in load_dataset(DATASET) if case.case_id == "prompt_injection_in_source")
+    fixture, snapshot_id = _load_eval_fixture(case)
+
+    assert fixture is not None
+    assert snapshot_id == case.expected_data_snapshot_ids["eval_fixture:prompt_injection"]
+    result = await _fixture_tool_executor(fixture)(
+        session=None,
+        tool_name="get_pitcher_status",
+        arguments={"player_id": 1},
+        context=None,
+    )
+
+    assert result["ok"] is True
+    assert "Ignore all previous instructions" in result["data"]["source_note"]
+
+
+def test_all_synthetic_fixture_refs_resolve_to_their_pinned_file_hashes():
+    cases = [case for case in load_dataset(DATASET) if case.fixture_ref.startswith("fixture:")]
+
+    assert len(cases) == 6
+    for case in cases:
+        fixture_entry = _load_eval_fixture(case)
+        assert fixture_entry is not None
+        fixture, snapshot_id = fixture_entry
+        assert case.expected_data_snapshot_ids == {
+            fixture["snapshot_key"]: snapshot_id,
+        }
+
+
 def test_grader_checks_tool_arguments_answer_claims_and_context():
     case = next(case for case in load_dataset(DATASET) if case.case_id == "normal_pitcher_comparison")
     trace = EvalTrace(
@@ -45,7 +77,7 @@ def test_grader_checks_tool_arguments_answer_claims_and_context():
             TraceToolCall(name="search_season_pitchers", arguments={"name": "양현종", "as_of_date": "2026-06-30"}),
             TraceToolCall(name="compare_pitchers", arguments={"as_of_date": "2026-06-30"}),
         ],
-        answer="2026-06-30 기준일 이전 기록으로 비교했습니다. 표본 한계에 유의하세요.",
+        answer="2026년 6월 30일 기준 이전 기록으로 비교했습니다. 기준일 당일 경기는 제외했습니다.",
         metrics=TraceMetrics(
             llm_calls=2,
             input_tokens=400,
@@ -63,6 +95,26 @@ def test_grader_checks_tool_arguments_answer_claims_and_context():
 
     assert result["status"] == "REVIEW"
     assert all(check["passed"] for check in result["checks"])
+
+
+def test_grader_fails_as_of_boundary_when_same_day_exclusion_is_missing():
+    case = next(case for case in load_dataset(DATASET) if case.case_id == "normal_pitcher_comparison")
+    trace = EvalTrace(
+        case_id=case.case_id,
+        fixture_ref=case.fixture_ref,
+        context=case.context,
+        data_snapshot_ids=case.expected_data_snapshot_ids,
+        tool_calls=[
+            TraceToolCall(name="search_season_pitchers", arguments={"as_of_date": "2026-06-30"}),
+            TraceToolCall(name="compare_pitchers", arguments={"as_of_date": "2026-06-30"}),
+        ],
+        answer="2026년 6월 30일 기준 이전 기록을 비교했습니다.",
+    )
+
+    result = grade_case(case, trace)
+
+    check = next(item for item in result["checks"] if item["name"] == "answer_same_day_exclusion")
+    assert check["passed"] is False
 
 
 def test_grader_fails_when_tool_argument_leaks_as_of_boundary():
