@@ -36,6 +36,7 @@ async def db_session():
     async with factory() as session:
         session.add_all([
             KboTeam(code="HT", name="KIA"),
+            KboTeam(code="KIA", name="KIA game code"),
             KboTeam(code="SS", name="Samsung"),
         ])
         await session.commit()
@@ -43,15 +44,22 @@ async def db_session():
     await engine.dispose()
 
 
-def add_game(session, game_pk, game_date, status="Final"):
+def add_game(
+    session,
+    game_pk,
+    game_date,
+    status="Final",
+    home_team_code="SS",
+    away_team_code="HT",
+):
     session.add(KboGame(
         game_pk=game_pk,
         season=2026,
         season_type="REGULAR",
         season_phase="REGULAR",
         game_date=date.fromisoformat(game_date),
-        home_team_code="SS",
-        away_team_code="HT",
+        home_team_code=home_team_code,
+        away_team_code=away_team_code,
         home_score=1,
         away_score=2,
         status=status,
@@ -121,6 +129,32 @@ async def test_as_of_stats_exclude_boundary_day_and_recompute_rates(db_session):
     assert pitcher["k_minus_bb_pct"] == 20.0
     assert pitcher["data_through_date"] == "2026-06-02"
     assert result["provenance"]["status"] == "UNTRACKED"
+
+
+@pytest.mark.asyncio
+async def test_coverage_counts_kia_game_code_for_official_team_code(db_session):
+    add_game(
+        db_session,
+        "kia-game-code",
+        "2026-06-01",
+        away_team_code="KIA",
+    )
+    add_appearance(db_session, "kia-game-code", bf=20, strikeouts=6, walks=2)
+    await db_session.commit()
+
+    result = await get_pitcher_stats_as_of(
+        db_session,
+        season=2026,
+        team_code="KIA",
+        as_of_date=date(2026, 6, 2),
+    )
+
+    assert result["coverage"] == {
+        "status": "COMPLETE",
+        "expected_final_games": 1,
+        "games_with_appearance_data": 1,
+        "missing_games": 0,
+    }
 
 
 @pytest.mark.asyncio

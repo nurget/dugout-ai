@@ -8,7 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.kbo import KboGame
 from app.models.kbo_pitcher_appearance import KboPitcherAppearance
-from app.services.team_codes import normalize_official_team_code
+from app.services.team_codes import (
+    game_team_code_candidates,
+    normalize_official_team_code,
+)
 
 
 IDENTITY_SOURCES = {"OFFICIAL_VERIFIED", "TEAM_NAME_UNIQUE"}
@@ -160,13 +163,17 @@ async def get_pitcher_stats_as_of(
     )
     rows = [dict(row) for row in (await session.execute(statement)).mappings().all()]
 
+    game_team_codes = game_team_code_candidates(team)
     expected_games = set((await session.scalars(
         select(KboGame.game_pk).where(
             KboGame.season == season,
             KboGame.season_type == "REGULAR",
             KboGame.status == "Final",
             KboGame.game_date < as_of_date,
-            or_(KboGame.home_team_code == team, KboGame.away_team_code == team),
+            or_(
+                KboGame.home_team_code.in_(game_team_codes),
+                KboGame.away_team_code.in_(game_team_codes),
+            ),
         )
     )).all())
     observed_games = {row["game_pk"] for row in rows}

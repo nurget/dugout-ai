@@ -14,11 +14,11 @@ OFFICIAL_TEAM_CODES = {
 }
 
 GAME_TEAM_CODE_ALIASES = {
-    "KIA": ("KIA",),
+    "HT": ("KIA", "HT"),
     "SS": ("SAM", "SS"),
     "LG": ("LG",),
     "KT": ("KT",),
-    "SSG": ("SSG", "SK"),
+    "SK": ("SSG", "SK"),
     "NC": ("NC",),
     "OB": ("DOO", "OB"),
     "LT": ("LOT", "LT"),
@@ -29,7 +29,8 @@ GAME_TEAM_CODE_ALIASES = {
 
 def game_team_code_candidates(team_code: str) -> tuple[str, ...]:
     code = team_code.strip().upper()
-    return GAME_TEAM_CODE_ALIASES.get(code, (code,))
+    official_code = normalize_official_team_code(code)
+    return GAME_TEAM_CODE_ALIASES.get(official_code, (code,))
 
 
 def normalize_official_team_code(team_code: str) -> str:
