@@ -110,7 +110,7 @@ async def test_matchups_exclude_as_of_day_and_report_small_sample(db_session):
 
 
 @pytest.mark.asyncio
-async def test_matchup_rejects_opponent_batter_only_seen_after_as_of(db_session):
+async def test_matchup_accepts_as_of_day_batter_but_excludes_same_day_pa(db_session):
     db_session.add(KboPitcherAppearance(
         game_pk="g1", team_code="HT", appearance_order=1, pitcher_id="p1",
         pitcher_name="투수 A", pitcher_id_source="OFFICIAL_VERIFIED",
@@ -124,7 +124,31 @@ async def test_matchup_rejects_opponent_batter_only_seen_after_as_of(db_session)
     ))
     await db_session.commit()
 
-    with pytest.raises(ValueError, match="상대 구단 기록으로 확인되지 않는"):
+    result = await analyze_lineup_matchups(
+        db_session, team_code="HT", opponent_team_code="LG", pitcher_ids=["p1"],
+        batter_ids=["b1"], season=2026, as_of_date=date(2026, 6, 3),
+    )
+
+    assert result["matchups"][0]["batter_name"] == "미래 타자"
+    assert result["matchups"][0]["plate_appearances"] == 0
+
+
+@pytest.mark.asyncio
+async def test_matchup_rejects_opponent_batter_first_seen_after_as_of(db_session):
+    db_session.add(KboPitcherAppearance(
+        game_pk="g1", team_code="HT", appearance_order=1, pitcher_id="p1",
+        pitcher_name="투수 A", pitcher_id_source="OFFICIAL_VERIFIED",
+        batters_faced=10, pitches=30, strikeouts=3, walks=1,
+    ))
+    db_session.add(KboPlateAppearance(
+        game_pk="g2", season=2026, game_date=date(2026, 6, 4), at_bat_number=1,
+        inning=1, inning_topbot="top", batting_team_code="LG", fielding_team_code="HT",
+        batter_id="b1", batter_name="미래 타자", batter_stand="L",
+        pitcher_id="p1", pitcher_name="투수 A", event="single",
+    ))
+    await db_session.commit()
+
+    with pytest.raises(ValueError, match="기준일까지 상대 구단 경기에서 확인되지 않는"):
         await analyze_lineup_matchups(
             db_session, team_code="HT", opponent_team_code="LG", pitcher_ids=["p1"],
             batter_ids=["b1"], season=2026, as_of_date=date(2026, 6, 3),
