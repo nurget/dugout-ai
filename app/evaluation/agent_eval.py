@@ -1,6 +1,7 @@
 """Validate versioned Agent cases and grade privacy-safe execution traces."""
 
 import json
+import hashlib
 import math
 import re
 import unicodedata
@@ -8,6 +9,17 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from sqlalchemy import inspect as sqlalchemy_inspect, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.data_import_batch import DataImportBatch
+from app.models.kbo import KboGame, KboTeam
+from app.models.kbo_official_season_pitcher import KboOfficialSeasonPitcher
+from app.models.kbo_pitcher_appearance import KboPitcherAppearance
+from app.models.kbo_pitching import KboPitchingAppearance
+from app.models.kbo_plate_appearance import KboPlateAppearance
+from app.models.kbo_season_pitcher import KboSeasonPitcher
+from app.models.player import Player
 
 
 class StrictModel(BaseModel):
@@ -87,6 +99,60 @@ class EvalTrace(StrictModel):
     tool_calls: list[TraceToolCall] = Field(default_factory=list)
     answer: str = ""
     metrics: TraceMetrics = Field(default_factory=TraceMetrics)
+
+
+FIXTURE_MODELS = (
+    DataImportBatch,
+    KboGame,
+    KboOfficialSeasonPitcher,
+    KboPitcherAppearance,
+    KboPitchingAppearance,
+    KboPlateAppearance,
+    KboSeasonPitcher,
+    KboTeam,
+    Player,
+)
+
+
+def _stable_value(value: Any) -> Any:
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _stable_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_stable_value(item) for item in value]
+    if isinstance(value, bytes):
+        return value.hex()
+    return value
+
+
+async def database_fixture_snapshot_id(session: AsyncSession) -> str:
+    """Hash all baseball source tables used by Agent Tools, without exporting rows."""
+    digest = hashlib.sha256()
+    for model in FIXTURE_MODELS:
+        digest.update(model.__tablename__.encode("utf-8"))
+        digest.update(b"\0")
+        exists = await session.run_sync(
+            lambda sync_session, table=model.__tablename__: sqlalchemy_inspect(sync_session.connection()).has_table(table)
+        )
+        if not exists:
+            digest.update(b"MISSING\n")
+            continue
+        primary_key = tuple(model.__table__.primary_key.columns)
+        rows = (await session.scalars(select(model).order_by(*primary_key))).all()
+        for row in rows:
+            record = {
+                column.name: _stable_value(getattr(row, column.name))
+                for column in model.__table__.columns
+            }
+            digest.update(json.dumps(
+                record,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8"))
+            digest.update(b"\n")
+    return f"sha256:{digest.hexdigest()}"
 
 
 def _read_jsonl(path: Path, model: type[BaseModel]) -> list[BaseModel]:

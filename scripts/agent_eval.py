@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from app.evaluation.agent_eval import (
     TraceMetrics,
     TraceToolCall,
     compare_reports,
+    database_fixture_snapshot_id,
     grade_dataset,
     load_dataset,
     load_price_card,
@@ -60,11 +62,28 @@ async def _run_case(case: EvalCase) -> EvalTrace:
     async with AsyncSessionLocal() as session:
         statuses = await get_latest_dataset_statuses(session)
         snapshots = {row["dataset"]: row["snapshot_id"] for row in statuses}
+        snapshots["eval_fixture:database"] = await database_fixture_snapshot_id(session)
+        if not case.expected_data_snapshot_ids:
+            raise RuntimeError(
+                f"{case.case_id}: 실제 실행 전에 expected_data_snapshot_ids를 pin해야 합니다."
+            )
+        mismatches = {
+            key: {"expected": expected, "actual": snapshots.get(key)}
+            for key, expected in case.expected_data_snapshot_ids.items()
+            if snapshots.get(key) != expected
+        }
+        if mismatches:
+            raise RuntimeError(
+                f"{case.case_id}: pin한 fixture snapshot과 현재 DB가 다릅니다: {mismatches}"
+            )
         context = AgentContext(
             user_id="local-agent-eval",
             team_code=case.context.team_code or "",
             role=case.context.role or "FAN",
-            as_of_date=case.context.as_of_date,
+            as_of_date=(
+                date.fromisoformat(case.context.as_of_date)
+                if case.context.as_of_date else None
+            ),
             data_snapshot_ids=snapshots,
         )
         async with AsyncOpenAI(
@@ -147,9 +166,17 @@ async def _run_live(cases: list[EvalCase], output: Path) -> None:
     print(f"민감한 실행 trace 저장: {output}")
 
 
+async def _print_fixture_snapshot() -> None:
+    from app.db.session import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as session:
+        fixture_id = await database_fixture_snapshot_id(session)
+    print(json.dumps({"eval_fixture:database": fixture_id}, ensure_ascii=False, indent=2))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("validate", "run", "grade", "compare"))
+    parser.add_argument("command", choices=("validate", "snapshot", "run", "grade", "compare"))
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
     parser.add_argument("--traces", type=Path)
     parser.add_argument("--report", type=Path)
@@ -167,6 +194,10 @@ def main() -> None:
             versions = sorted({case.dataset_version for case in cases})
             print(f"유효한 평가 데이터: {len(cases)}건; version={','.join(versions)}")
             print(f"범주: {', '.join(categories)}")
+            return
+
+        if args.command == "snapshot":
+            asyncio.run(_print_fixture_snapshot())
             return
 
         if args.command == "run":

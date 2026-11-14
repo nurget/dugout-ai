@@ -39,6 +39,7 @@ def test_grader_checks_tool_arguments_answer_claims_and_context():
         case_id=case.case_id,
         fixture_ref=case.fixture_ref,
         context=case.context,
+        data_snapshot_ids=case.expected_data_snapshot_ids,
         versions={"model": "test-model", "prompt_version": "p1", "tool_schema_version": "t1"},
         tool_calls=[
             TraceToolCall(name="search_season_pitchers", arguments={"name": "양현종", "as_of_date": "2026-06-30"}),
@@ -70,6 +71,7 @@ def test_grader_fails_when_tool_argument_leaks_as_of_boundary():
         case_id=case.case_id,
         fixture_ref=case.fixture_ref,
         context=case.context,
+        data_snapshot_ids=case.expected_data_snapshot_ids,
         tool_calls=[
             TraceToolCall(name="search_season_pitchers", arguments={"as_of_date": "2026-06-01"}),
             TraceToolCall(name="compare_pitchers", arguments={"as_of_date": "2026-06-01"}),
@@ -90,6 +92,7 @@ def test_grade_summary_reports_unrun_cases_and_token_percentiles():
         case_id=case.case_id,
         fixture_ref=case.fixture_ref,
         context=case.context,
+        data_snapshot_ids=case.expected_data_snapshot_ids,
         tool_calls=[
             TraceToolCall(name="search_season_pitchers", arguments={"as_of_date": case.context.as_of_date}),
             TraceToolCall(name="compare_pitchers", arguments={"as_of_date": case.context.as_of_date}),
@@ -137,6 +140,7 @@ def test_price_card_estimates_cached_and_uncached_input_separately():
         case_id=case.case_id,
         fixture_ref=case.fixture_ref,
         context=case.context,
+        data_snapshot_ids=case.expected_data_snapshot_ids,
         versions={"model": "test-model"},
         tool_calls=[
             TraceToolCall(name="search_season_pitchers", arguments={"as_of_date": case.context.as_of_date}),

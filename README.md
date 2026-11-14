@@ -213,6 +213,9 @@ uv run alembic downgrade -1
 # JSONL 케이스 스키마와 중복 ID 확인 (외부 호출 없음)
 uv run python -m scripts.agent_eval validate
 
+# 현재 DB fingerprint 출력 (OpenAI 호출 없음; 케이스의 snapshot pin에 사용)
+uv run python -m scripts.agent_eval snapshot
+
 # 실제 DB와 모델로 선택한 케이스 실행. OpenAI 토큰 사용량이 발생합니다.
 uv run python -m scripts.agent_eval run --case-id normal_pitcher_comparison
 
