@@ -39,7 +39,71 @@ function Dashboard({ user, logout }: { user: User; logout: () => void }) {
 function Overview({ team, games, pitchers, gamePhases, gamePhase, onGamePhaseChange }: { team: TeamSummary | null; games: Game[]; pitchers: Pitcher[]; gamePhases: ReadonlyArray<readonly [SeasonPhase, string]>; gamePhase: SeasonPhase; onGamePhaseChange: (value: SeasonPhase) => void }) { return <><div className="page-head"><p className="eyebrow">REFERENCE DATA · 2026 SEASON</p><h2>{team && teamLabel(team.team_code)} 운영 현황</h2><p className="muted">AI 전술 분석을 보조하는 소속 구단의 경기·선수 데이터입니다.</p><div className="season-filter"><span className="season-filter__label">대회 구분</span><div className="phase-tabs" role="tablist" aria-label="대회 구분">{gamePhases.map(([value,label]) => <button type="button" role="tab" aria-selected={gamePhase === value} key={value} className={gamePhase === value ? "active" : ""} onClick={() => onGamePhaseChange(value)}>{label}</button>)}</div></div></div><div className="metrics"><div><span>소속 구단</span><strong>{team && teamLabel(team.team_code)}</strong></div><div><span>경기 수</span><strong>{games.length}</strong></div><div><span>투수 수</span><strong>{pitchers.length}</strong></div><div><span>권한</span><strong>{team?.role}</strong></div></div><section className="panel"><div className="panel-title"><h3>경기 목록</h3><span>{games.length}건</span></div>{games.length ? <div className="table-wrap"><table><thead><tr><th>일자</th><th>원정</th><th>스코어</th><th>홈</th><th>상태</th></tr></thead><tbody>{games.map(g => <tr key={g.game_pk}><td>{g.game_date}</td><td>{teamLabel(g.away_team_code)}</td><td>{g.away_score ?? "-"} : {g.home_score ?? "-"}</td><td>{teamLabel(g.home_team_code)}</td><td>{gameStatusLabel(g.status)}</td></tr>)}</tbody></table></div> : <Empty text="선택한 대회의 경기 데이터가 없습니다." />}</section></> }
 function Empty({ text }: { text: string }) { return <div className="empty">{text}</div>; }
 
-function Pitchers({ pitchers, seasonType, onSeasonTypeChange }: { pitchers: Pitcher[]; seasonType: SeasonPhase; onSeasonTypeChange: (value: SeasonPhase) => void }) { const [query, setQuery] = useState(""); const [sort, setSort] = useState<keyof Pitcher>("k_minus_bb_pct"); const [desc, setDesc] = useState(true); const rows = useMemo(() => pitchers.filter(p => p.pitcher_name.includes(query)).sort((a,b) => { const x=a[sort], y=b[sort]; return typeof x === "number" && typeof y === "number" ? (desc ? y-x : x-y) : 0; }), [pitchers, query, sort, desc]); const toggle = (key: keyof Pitcher) => { if (key === sort) setDesc(!desc); else { setSort(key); setDesc(true); } }; const Head = ({ id, children, title }: { id: keyof Pitcher; children: string; title?: string }) => <th><button className="sort" title={title} aria-label={title} onClick={() => toggle(id)}>{children}{sort === id && (desc ? " ↓" : " ↑")}</button></th>; const phases: ReadonlyArray<readonly [SeasonPhase, string]> = [["REGULAR","정규시즌"],["WILDCARD","와일드카드"],["SEMIPLAYOFF","준플레이오프"],["PLAYOFF","플레이오프"],["KOREAN_SERIES","한국시리즈"]]; return <><div className="page-head"><p className="eyebrow">REFERENCE DATA · PITCHING</p><h2>투수 기록</h2><p className="muted">전술 질문에 사용할 수 있는 시즌별 투수 지표를 확인합니다.</p><div className="season-filter"><span className="season-filter__label">대회 구분</span><div className="phase-tabs" role="tablist" aria-label="투수 기록 대회 구분">{phases.map(([value,label]) => <button type="button" role="tab" aria-selected={seasonType === value} key={value} className={seasonType === value ? "active" : ""} onClick={() => onSeasonTypeChange(value)}>{label}</button>)}</div></div></div><section className="panel"><div className="panel-title"><h3>{phases.find(([value]) => value === seasonType)?.[1]} 투수 기록</h3><input className="search" aria-label="선수명 검색" placeholder="선수명 검색" value={query} onChange={e => setQuery(e.target.value)} /></div>{rows.length ? <div className="table-wrap"><table><thead><tr><Head id="pitcher_name">선수명</Head><Head id="games" title="등판 경기 수">등판</Head><Head id="batters_faced" title="상대 타자 수 (Batters Faced)">BF</Head><Head id="strikeouts" title="탈삼진 (Strikeouts)">SO</Head><Head id="walks" title="볼넷 (Walks)">BB</Head><Head id="k_pct" title="탈삼진 비율">K%</Head><Head id="bb_pct" title="볼넷 비율">BB%</Head><Head id="k_minus_bb_pct" title="탈삼진 비율에서 볼넷 비율을 뺀 값">K-BB%</Head></tr></thead><tbody>{rows.map(p => <tr key={p.id}><td>{p.pitcher_name}</td><td>{p.games}</td><td>{p.batters_faced ?? "—"}</td><td>{p.strikeouts}</td><td>{p.walks}</td><td>{pct(p.k_pct)}</td><td>{pct(p.bb_pct)}</td><td className="emphasis">{pct(p.k_minus_bb_pct)}</td></tr>)}</tbody></table></div> : <Empty text="해당 대회의 투수 기록이 없습니다." />}</section></>; }
+function Pitchers({ pitchers, seasonType, onSeasonTypeChange }: { pitchers: Pitcher[]; seasonType: SeasonPhase; onSeasonTypeChange: (value: SeasonPhase) => void }) {
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<keyof Pitcher>("k_minus_bb_pct");
+  const [desc, setDesc] = useState(true);
+  const rows = useMemo(() => pitchers
+    .filter(p => p.pitcher_name.includes(query))
+    .sort((a, b) => {
+      const x = a[sort];
+      const y = b[sort];
+      return typeof x === "number" && typeof y === "number" ? (desc ? y - x : x - y) : 0;
+    }), [pitchers, query, sort, desc]);
+  const toggle = (key: keyof Pitcher) => {
+    if (key === sort) setDesc(!desc);
+    else { setSort(key); setDesc(true); }
+  };
+  const Head = ({ id, children, title }: { id: keyof Pitcher; children: string; title?: string }) => <th>
+    <button className="sort" title={title} aria-label={title} onClick={() => toggle(id)}>
+      {children}{sort === id && (desc ? " ↓" : " ↑")}
+    </button>
+  </th>;
+  const phases: ReadonlyArray<readonly [SeasonPhase, string]> = [
+    ["REGULAR", "정규시즌"], ["WILDCARD", "와일드카드"], ["SEMIPLAYOFF", "준플레이오프"],
+    ["PLAYOFF", "플레이오프"], ["KOREAN_SERIES", "한국시리즈"],
+  ];
+
+  return <>
+    <div className="page-head">
+      <p className="eyebrow">REFERENCE DATA · PITCHING</p>
+      <h2>투수 기록</h2>
+      <p className="muted">K%·BB%·K-BB% 등 시즌의 타석 결과를 요약한 기록입니다.</p>
+      <aside className="notice">
+        K%는 탈삼진 비율, BB%는 볼넷 비율, K-BB%는 두 비율의 차이입니다. 현재 데이터에는 구속·회전수·무브먼트가 없어 실제 투구 구위(Stuff)를 평가하지 않습니다.
+      </aside>
+      <div className="season-filter">
+        <span className="season-filter__label">대회 구분</span>
+        <div className="phase-tabs" role="tablist" aria-label="투수 기록 대회 구분">
+          {phases.map(([value, label]) => <button type="button" role="tab" aria-selected={seasonType === value} key={value} className={seasonType === value ? "active" : ""} onClick={() => onSeasonTypeChange(value)}>{label}</button>)}
+        </div>
+      </div>
+    </div>
+    <section className="panel">
+      <div className="panel-title">
+        <h3>{phases.find(([value]) => value === seasonType)?.[1]} 투수 기록</h3>
+        <input className="search" aria-label="선수명 검색" placeholder="선수명 검색" value={query} onChange={e => setQuery(e.target.value)} />
+      </div>
+      {rows.length ? <div className="table-wrap"><table>
+        <thead><tr>
+          <Head id="pitcher_name">선수명</Head>
+          <Head id="games" title="등판 경기 수">등판</Head>
+          <Head id="batters_faced" title="상대 타자 수 (Batters Faced)">BF</Head>
+          <Head id="strikeouts" title="탈삼진 (Strikeouts)">SO</Head>
+          <Head id="walks" title="볼넷 (Walks)">BB</Head>
+          <Head id="k_pct" title="탈삼진 ÷ 상대 타자 비율">K%</Head>
+          <Head id="bb_pct" title="볼넷 ÷ 상대 타자 비율">BB%</Head>
+          <Head id="k_minus_bb_pct" title="K%에서 BB%를 뺀 값; 실제 구위 측정값이 아닙니다">K-BB%</Head>
+        </tr></thead>
+        <tbody>{rows.map(p => <tr key={p.id}>
+          <td>{p.pitcher_name}</td><td>{p.games}</td><td>{p.batters_faced ?? "—"}</td>
+          <td>{p.strikeouts}</td><td>{p.walks}</td><td>{pct(p.k_pct)}</td>
+          <td>{pct(p.bb_pct)}</td><td className="emphasis">{pct(p.k_minus_bb_pct)}</td>
+        </tr>)}</tbody>
+      </table></div> : <Empty text="해당 대회의 투수 기록이 없습니다." />}
+    </section>
+  </>;
+}
 
 function Agent({ accountId, canReview, logout }: { accountId: UserId; canReview: boolean; logout: () => void }) {
   const [message, setMessage] = useState("");

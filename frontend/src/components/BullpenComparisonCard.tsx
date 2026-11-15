@@ -67,7 +67,7 @@ export function BullpenComparisonCard({ result, canReview }: Props) {
       <p className="bullpen-comparison__status">{workloadMessage(pitcher.workload_status)}</p>
     </article>)}</div>
     {result.withheld.length > 0 && <div className="bullpen-comparison__withheld"><strong>비교 보류</strong>{result.withheld.map((player) => <p key={player.pitcher_id}>{player.pitcher_name ?? player.pitcher_id}: {player.reason}</p>)}</div>}
-    <footer className="bullpen-comparison__notice">기준일 당일 경기는 제외하고 그 이전 등판 기록으로 누적 성적을 계산했습니다. 기록 범위: {result.data_through_date ?? "확인 불가"}. {result.coverage?.status === "PARTIAL" ? `종료 경기 ${result.coverage.missing_games}건의 투수 기록이 없어 비교를 제한했습니다. ` : ""}{result.provenance?.status === "UNTRACKED" ? "일부 원천 행의 적재 버전을 확인할 수 없습니다. " : ""}선수 ID가 잠정 연결된 후보는 비교를 제한할 수 있습니다. 이 비교는 당일 엔트리, 컨디션 및 등판 가능 여부를 확인하지 않습니다.</footer>
+    <footer className="bullpen-comparison__notice">기준일 당일 경기는 제외하고 그 이전 등판 기록으로 누적 성적을 계산했습니다. 기록 범위: {result.data_through_date ?? "확인 불가"}. {result.coverage?.status === "PARTIAL" ? `종료 경기 ${result.coverage.missing_games}건의 투수 기록이 없어 비교를 제한했습니다. ` : ""}{result.provenance?.status === "UNTRACKED" ? "일부 원천 행의 적재 버전을 확인할 수 없습니다. " : ""}K-BB%는 타석 결과 지표로, 구속·회전수·무브먼트 기반 실제 구위를 뜻하지 않습니다. 선수 ID가 잠정 연결된 후보는 비교를 제한할 수 있습니다. 이 비교는 당일 엔트리, 컨디션 및 등판 가능 여부를 확인하지 않습니다.</footer>
     {canReview && result.run_id && result.candidates.length > 0 && <form className="bullpen-review" onSubmit={saveReview}>
       <div><strong>이 후보 비교를 검토해 주세요</strong><p>선택한 후보가 적절했는지 기록합니다. 이 평가는 경기 결과의 예측 적중률과는 별개입니다.</p></div>
       <fieldset>
