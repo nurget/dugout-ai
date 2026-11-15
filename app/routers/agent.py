@@ -193,6 +193,7 @@ async def chat_stream(
                             client=client,
                             history=history,
                             context=context,
+                            user_id=str(current_user.id),
                         ):
                             if await request.is_disconnected():
                                 break

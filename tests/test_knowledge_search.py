@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.tools.knowledge_search import search_public_baseball_knowledge
+from app.tools import private_rule_search
 from app.evaluation.rag_eval import grade_rag_traces, load_rag_dataset
 
 
@@ -185,3 +186,63 @@ async def test_empty_query_fails_without_calling_search():
     assert result["ok"] is False
     assert result["error"]["code"] == "INVALID_QUERY"
     search.assert_not_awaited()
+
+
+def test_private_rule_search_is_scoped_to_authenticated_owner(tmp_path, monkeypatch):
+    monkeypatch.setattr(private_rule_search, "PRIVATE_KNOWLEDGE_ROOT", tmp_path)
+    owner_id = "11111111-1111-4111-8111-111111111111"
+    other_id = "22222222-2222-4222-8222-222222222222"
+    owner_dir = tmp_path / owner_id
+    owner_dir.mkdir()
+    (owner_dir / "index.jsonl").write_text(
+        json.dumps({
+            "title": "2026 공식야구규칙",
+            "edition": "2026",
+            "rule_number": "5.02(c)",
+            "pdf_page": 46,
+            "printed_page": 22,
+            "text": "5.02(c) 투구 시 내야 수비 위치 제한",
+        }, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    own_result = private_rule_search.search_private_baseball_rules(
+        owner_user_id=owner_id,
+        query="5.02(c) 내야 수비 위치",
+    )
+    other_result = private_rule_search.search_private_baseball_rules(
+        owner_user_id=other_id,
+        query="5.02(c) 내야 수비 위치",
+    )
+
+    assert own_result["ok"] is True
+    assert own_result["data"]["result_count"] == 1
+    assert own_result["data"]["results"][0]["rule_number"] == "5.02(c)"
+    assert own_result["data"]["results"][0]["pdf_page"] == 46
+    assert other_result["ok"] is False
+    assert other_result["error"]["code"] == "PRIVATE_INDEX_UNAVAILABLE"
+
+
+def test_private_rule_tool_is_only_available_for_rule_intent_with_owner_index():
+    from app.agent.streaming import tools_for_message
+    from app.agent.tool_definitions import (
+        SEARCH_BASEBALL_KNOWLEDGE_TOOL_NAME,
+        SEARCH_PRIVATE_BASEBALL_RULES_TOOL_NAME,
+    )
+
+    tools = tools_for_message(
+        "5.02(c) 위반 벌칙을 알려줘.",
+        knowledge_enabled=True,
+        private_knowledge_enabled=True,
+    )
+    names = {tool["name"] for tool in tools}
+    assert SEARCH_PRIVATE_BASEBALL_RULES_TOOL_NAME in names
+    assert SEARCH_BASEBALL_KNOWLEDGE_TOOL_NAME not in names
+
+    ordinary_tools = tools_for_message(
+        "2026 시즌 투수 성적을 비교해줘.",
+        knowledge_enabled=True,
+        private_knowledge_enabled=True,
+    )
+    ordinary_names = {tool["name"] for tool in ordinary_tools}
+    assert SEARCH_PRIVATE_BASEBALL_RULES_TOOL_NAME not in ordinary_names

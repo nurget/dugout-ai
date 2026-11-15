@@ -1,5 +1,6 @@
 FINALIZE_ANALYSIS_TOOL_NAME = "finalize_analysis"
 SEARCH_BASEBALL_KNOWLEDGE_TOOL_NAME = "search_baseball_knowledge"
+SEARCH_PRIVATE_BASEBALL_RULES_TOOL_NAME = "search_private_baseball_rules"
 
 FINALIZE_ANALYSIS_DEFINITION = {
     "type": "function",
@@ -31,6 +32,28 @@ SEARCH_BASEBALL_KNOWLEDGE_DEFINITION = {
             "query": {
                 "type": "string",
                 "description": "규정·전술·용어에 대한 검색 질문",
+            },
+        },
+        "required": ["query"],
+        "additionalProperties": False,
+    },
+    "strict": True,
+}
+
+SEARCH_PRIVATE_BASEBALL_RULES_DEFINITION = {
+    "type": "function",
+    "name": SEARCH_PRIVATE_BASEBALL_RULES_TOOL_NAME,
+    "description": (
+        "현재 로그인한 사용자에게만 허용된 비공개 2026 공식야구규칙 문서를 검색한다. "
+        "규정 질문에 사용하고, 검색 결과의 규칙 번호·PDF 페이지·내용만 근거로 답한다. "
+        "검색 결과가 없으면 규정 내용을 추측하지 않는다."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "규정에 대한 검색 질문",
             },
         },
         "required": ["query"],
@@ -71,6 +94,7 @@ COMPARE_BULLPEN_CANDIDATES_DEFINITION = {
     "description": (
         "로그인한 KBO 구단의 투수 1~5명을 기준일 이전 정규시즌 "
         "누적 K-BB%, 표본 규모, 최근 3일 투구 부담으로 조건부 비교한다. "
+        "K-BB%는 타석 결과 지표이며 실제 공의 구위를 측정하지 않는다. "
         "사용자가 선수 ID를 제공하지 않았다면 "
         "search_season_pitchers로 먼저 ID를 확인한다. "
         "당일 엔트리, 선발·구원 역할, 등판 가능 여부는 검증하지 않는다."
@@ -102,6 +126,7 @@ COMPARE_BULLPEN_CANDIDATES_DEFINITION = {
 AGENT_TOOLS = [
     FINALIZE_ANALYSIS_DEFINITION,
     SEARCH_BASEBALL_KNOWLEDGE_DEFINITION,
+    SEARCH_PRIVATE_BASEBALL_RULES_DEFINITION,
     {
         "type": "function",
         "name": "get_game_state",
@@ -304,7 +329,7 @@ AGENT_TOOLS = [
         "name": "compare_pitchers",
         "description": (
             "로그인한 구단의 두 투수를 기준일 이전 누적 등판 기록으로 비교한다. "
-            "K%, BB%, K-BB% 등을 확인한다. "
+            "K%, BB%, K-BB% 등을 확인한다. K-BB%는 타석 결과 지표이지 실제 구위가 아니다. "
             "반드시 먼저 search_season_pitchers로 각 투수의 ID를 확인한다. "
             "기준일 당일 경기는 전부 제외하며, 기록만으로 승리 확률이나 교체 효과를 단정하지 않는다."
         ),
