@@ -11,6 +11,7 @@ from app.models.user import User
 from app.models.conversation_owner import ConversationOwner
 from app.models.data_import_batch import DataImportBatch
 from app.models.kbo_plate_appearance import KboPlateAppearance
+from app.models.kbo_pitch_event import KboPitchEvent
 from app.models.recommendation_review import RecommendationReview
 
 __all__ = [
@@ -31,5 +32,6 @@ __all__ = [
     "ConversationOwner",
     "DataImportBatch",
     "KboPlateAppearance",
+    "KboPitchEvent",
     "RecommendationReview",
 ]
