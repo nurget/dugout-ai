@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -6,7 +7,7 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4.1-mini"
     openai_api_key: str | None = None
     openai_public_knowledge_vector_store_id: str | None = None
-    jwt_secret_key: str
+    jwt_secret_key: str = Field(min_length=32)
     allow_public_registration: bool = False
 
     model_config = SettingsConfigDict(
