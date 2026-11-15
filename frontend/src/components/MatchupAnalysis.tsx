@@ -41,11 +41,6 @@ export function MatchupAnalysis({ teamCode, logout }: { teamCode: TeamCode; logo
 
   useEffect(() => {
     let active = true;
-    setGames([]);
-    setSelectedGamePk("");
-    setLineup([]);
-    setAnalysis(null);
-    setLoadedGamesDate(null);
     api.matchupGames(asOfDate).then(({ data }) => {
       if (!active) return;
       setGames(data);
@@ -98,7 +93,7 @@ export function MatchupAnalysis({ teamCode, logout }: { teamCode: TeamCode; logo
     </div>
     <section className="panel matchup-panel">
       <div className="matchup-controls">
-        <label>경기 날짜<input type="date" min="2026-01-01" max={today()} value={asOfDate} onChange={(e) => { setAsOfDate(e.target.value); setSelectedPitchers([]); setGames([]); setLineup([]); setAnalysis(null); setError(null); }} /></label>
+        <label>경기 날짜<input type="date" min="2026-01-01" max={today()} value={asOfDate} onChange={(e) => { setAsOfDate(e.target.value); setSelectedPitchers([]); setGames([]); setSelectedGamePk(""); setLineup([]); setAnalysis(null); setError(null); }} /></label>
         {games.length > 1 && <label>경기<select value={selectedGamePk} onChange={(e) => { const game = games.find((item) => item.game_pk === e.target.value); setSelectedGamePk(e.target.value); setLineup(game?.batters ?? []); setAnalysis(null); }}>
           {games.map((game, index) => <option value={game.game_pk} key={game.game_pk}>{teamName[game.away_team_code] ?? game.away_team_code} @ {teamName[game.home_team_code] ?? game.home_team_code} · {index + 1}차전</option>)}
         </select></label>}
