@@ -26,7 +26,11 @@ DATASETS = {
     },
     "kbo_plate_appearances": {
         "label": "타자·투수 맞대결 타석",
-        "source_policy": "Naver Sports 중계 API 기반의 외부 PBP 데이터셋. 상용 사용 전 원천 권리 확인 필요",
+        "source_policy": "게시자가 CC BY 4.0으로 표시한 외부 PBP 데이터. 원천 상용 권리는 별도 확인 필요",
+    },
+    "kbo_pitch_events": {
+        "label": "PBP 투구 원본",
+        "source_policy": "게시자가 CC BY 4.0으로 표시한 외부 PBP 데이터. 원천 상용 권리는 별도 확인 필요",
     },
 }
 

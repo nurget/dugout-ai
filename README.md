@@ -14,6 +14,7 @@
 - 실제 경기 상태, 시즌 투수 지표, 최근 3일 투구 부담 조회
 - 기준일 이전 종료 경기만 사용한 투수 누적 지표와 불펜 후보 비교
 - 경기 날짜에 소속 구단의 상대팀과 PBP 관측 타자를 자동 구성해 후보 투수의 과거 직접 맞대결 조회
+- 공개 라이선스 데이터 기준 2023–2026 투구 단위 PBP 원본 및 타석 맞대결 적재
 - KBO 데이터 적재 상태와 출처 확인
 - 공개 규정·전술 문서에 대한 선택적 RAG 검색 및 출처 메타데이터 전달
 - 사용자 계정에 묶인 로컬 비공개 규정 문서 검색 (Beta)
@@ -197,6 +198,9 @@ uv run alembic downgrade -1
 - 타순 맞대결은 별도 PBP 데이터 적재가 필요합니다. 공개 데이터셋 snapshot을 가져오려면 `uv run python -m scripts.fetch_kbo_pbp_snapshot --season 2026 --output data/private/kbo_pbp_2026_hf.parquet`을 실행하세요. 고정된 저장소 revision, SHA-256, 날짜 범위, 원천/라이선스 표기를 `.source.json` sidecar에 기록하고 `data/private/` 아래에만 파일을 저장합니다. 다운로드만 수행하며 DB에는 반영하지 않습니다.
 - 내려받은 파일을 먼저 dry-run 검증합니다: `uv run python -m scripts.import_kbo_plate_appearances data/private/kbo_pbp_2026_hf.parquet --season 2026 --source kbo_pbp_naver_sports_cc_by_4.0`. DB에 적재하려면 기존 DB 스키마와 migration 상태를 확인한 뒤 `--apply`를 추가합니다.
 - PBP 데이터셋은 [배포자 저장소](https://github.com/slothman3878/kbo_pbp_naver_sports)와 [데이터 카드](https://huggingface.co/datasets/slothman3878/kbo_playbyplay)에 명시된 출처·라이선스를 확인해야 합니다. 배포자는 Naver Sports 중계 API 기반이며 데이터셋 라이선스를 CC BY 4.0으로 표시합니다. 서비스 운영 전에는 원천 데이터의 상업적 사용 및 재배포 권한도 확인해야 합니다.
+- PBP 투구 행을 DB에 보존하려면 먼저 `uv run alembic upgrade head`를 적용하고, `uv run python -m scripts.import_kbo_pitch_events data/private/kbo_pbp_2025.parquet --season 2025`로 검증합니다. DB에 반영할 때만 `--apply`를 추가합니다. 시즌별 파일은 `2023`, `2024`, `2025`, `2026`이며 원본 파일과 라이선스 출처 manifest는 Git에서 제외되는 `data/private/`에 둡니다. 투구별 결과, 구종명, 구속·좌표, 타석 전후 주자·아웃·점수 등 데이터셋 원본 필드는 `raw_payload`에 보존합니다.
+- 적재된 PBP 행 수는 `uv run python -m scripts.audit_kbo_pitch_events`로 시즌별 확인할 수 있습니다.
+- 현재 확보한 PBP는 2023–2026 일부 시즌의 중계 기반 투구 로그입니다. 공식 시즌 타자·투수 누적 기록 전체, 수비·주루·등록·부상·컨디션 기록까지 포함하지 않으며, PBP에서 계산한 결과를 공식 기록으로 표시하지 않습니다. 전체 기록 확장은 KBO가 제공하는 공식 API나 서면 허가, 또는 해당 항목을 포함하고 재사용 권한이 명시된 데이터 출처를 확인한 뒤 진행합니다. 상세 범위는 [KBO 데이터 범위 문서](docs/kbo-data-coverage.md)를 참고하세요.
 - `as_of_date` 분석은 적재된 경기별 기록을 기준일 이전 종료 경기로 다시 집계합니다. 날짜 안의 경기 순서는 구분하지 않습니다.
 - 평가 데이터셋은 `evals/agent/v1.jsonl`에 버전 고정합니다. 아래 `validate`와 `grade`는 로컬 검증이며 LLM을 호출하지 않습니다. `run`은 실제 DB와 OpenAI API를 사용하고 토큰 비용이 발생할 수 있습니다. 실행 trace에는 답변과 Tool 인자가 담길 수 있어 `data/private/`에만 저장합니다.
 - 데이터의 출처와 적재 상태를 제공하지만, 이는 데이터의 정확성이나 최신성을 보증하지 않습니다.
