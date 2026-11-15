@@ -66,6 +66,8 @@ JWT 비밀값은 다음 명령으로 만들 수 있습니다.
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
+JWT 비밀값은 32자 이상이어야 합니다. 짧거나 빠진 경우 백엔드는 설정 오류를 내고 시작하지 않습니다.
+
 처음 실행할 때는 나머지 값을 그대로 사용해도 됩니다.
 
 ```dotenv

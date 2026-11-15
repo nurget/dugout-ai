@@ -19,11 +19,26 @@ def _owner_dir(owner_user_id: str) -> Path:
     return PRIVATE_KNOWLEDGE_ROOT / owner_id
 
 
+def _index_path(owner_user_id: str) -> Path:
+    owner_dir = _owner_dir(owner_user_id)
+    pointer_path = owner_dir / "current.json"
+    if pointer_path.is_file():
+        try:
+            payload = json.loads(pointer_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return owner_dir / "missing-index.jsonl"
+        digest = payload.get("sha256") if isinstance(payload, dict) else None
+        if not isinstance(digest, str) or re.fullmatch(r"[a-f0-9]{64}", digest) is None:
+            return owner_dir / "missing-index.jsonl"
+        return owner_dir / digest / "index.jsonl"
+    return owner_dir / "index.jsonl"
+
+
 def has_private_rulebook(owner_user_id: str | None) -> bool:
     if not owner_user_id:
         return False
     try:
-        return (_owner_dir(owner_user_id) / "index.jsonl").is_file()
+        return _index_path(owner_user_id).is_file()
     except ValueError:
         return False
 
@@ -55,7 +70,7 @@ def search_private_baseball_rules(
         }
 
     try:
-        index_path = _owner_dir(owner_user_id) / "index.jsonl"
+        index_path = _index_path(owner_user_id)
     except ValueError:
         return {
             "ok": False,

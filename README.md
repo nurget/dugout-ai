@@ -124,6 +124,7 @@ uv run python -m scripts.create_demo_user --username demo --team KIA --role COAC
 | `GET` | `/api/teams/me/matchup-games` | 경기 날짜에 소속 구단이 치른 경기와 PBP 관측 타자 조회 |
 | `GET` | `/api/teams/me/matchup-batters` | 기준일 이전 경기에서 상대 타자 ID와 좌우 타석 정보 검색 |
 | `POST` | `/api/teams/me/pitcher-matchups` | 선택 경기의 관측 타자와 후보 투수의 기준일 이전 맞대결 집계 |
+| `POST` | `/api/agent/knowledge/private-rulebook` | 인증 사용자 계정에 비공개 PDF 규정집 등록·교체 |
 | `POST` | `/api/agent/chat/stream` | JWT, 메시지, 선택적 대화 ID를 받아 SSE 응답 |
 | `GET` | `/api/agent/conversations/{id}/messages` | 소유한 대화 복원 |
 | `GET` | `/api/agent/runs/{id}` | Agent·Tool 실행 이력 조회 |
@@ -220,29 +221,16 @@ RAG의 검색·답변 흐름, 토큰 비용, 품질 지표와 면접 설명 예�
 
 ### 사용자 비공개 규정 검색 (Beta)
 
-사용자가 제공한 PDF는 `data/private/rag/<사용자 UUID>/`에 원문과 로컬 검색 인덱스로 저장합니다. 현재 검색은 단어와 한글 2-gram 점수를 이용하는 경량 방식이며 별도 임베딩 API나 Vector Store를 사용하지 않습니다. 이 경로는 Git에서 제외되며, 검색은 인증된 사용자 UUID에 해당하는 인덱스만 엽니다. 규정 관련 질문에서만 Tool 설명을 추가하고 최대 3개 발췌문을 답변 문맥에 넣습니다. 답변을 생성할 때 검색된 발췌문은 설정한 OpenAI 모델에 전달되므로, 이 기능은 공개 배포가 아니라 계정 접근 제어가 있는 문서 검색을 뜻합니다. 운영 배포에서는 비공개 볼륨·백업 권한과 모델 제공자 데이터 처리 조건도 배포 환경에 맞게 확인해야 합니다.
-
-현재 로그인 계정 UUID는 로그인 토큰으로 다음 API에서 확인할 수 있습니다:
+사용자는 인증된 업로드 API에 PDF를 보내면 됩니다. 서버가 로그인 계정 UUID로 원문과 로컬 검색 인덱스를 연결하므로 UUID를 요청에 넣지 않습니다. PDF는 20MB까지 허용하며, 계정당 활성 문서는 하나입니다. 기존 문서와 다른 PDF를 올릴 때는 `replace=true`를 명시해야 합니다.
 
 ```bash
-USER_ID=$(curl -s http://127.0.0.1:8000/api/auth/me \
-  -H "Authorization: Bearer $TOKEN" | jq -r .id)
+curl -f -X POST http://127.0.0.1:8000/api/agent/knowledge/private-rulebook \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/pdf' \
+  --data-binary @/path/to/2026_야구규칙.pdf
 ```
 
-응답의 `id`를 사용해 규정집을 먼저 dry-run하고, 결과가 맞으면 로컬 인덱스에 저장합니다:
-
-```bash
-uv run python -m scripts.index_private_rulebook \
-  /path/to/2026_야구규칙.pdf \
-  --owner-user-id "$USER_ID"
-
-uv run python -m scripts.index_private_rulebook \
-  /path/to/2026_야구규칙.pdf \
-  --owner-user-id "$USER_ID" \
-  --apply
-```
-
-`--apply`는 PDF 원문과 추출 텍스트 조각을 해당 UUID 디렉터리에 복사하고 파일 권한을 제한합니다. 같은 서버를 여러 사용자가 공유하면 각 계정별 저장 디렉터리를 별도 백업·운영 정책으로 보호해야 합니다. 규정 답변은 문서명, 조항 번호, PDF 페이지를 표시하고 원문을 길게 재현하지 않습니다.
+교체 요청은 주소 끝에 `?replace=true`를 붙입니다. 저장 경로는 `data/private/rag/<사용자 UUID>/`이며 Git에서 제외됩니다. 현재 검색은 단어와 한글 2-gram 점수를 이용하는 경량 방식으로, 별도 임베딩 API나 Vector Store를 사용하지 않습니다. 규정 관련 질문에서만 Tool 설명을 추가하고 최대 3개 발췌문을 답변 문맥에 넣습니다. 발췌문은 설정한 OpenAI 모델에 전달되므로, 이 기능은 공개 배포가 아니라 계정 접근 제어가 있는 문서 검색을 뜻합니다. 운영 배포에서는 비공개 볼륨·백업 권한과 모델 제공자 데이터 처리 조건도 확인해야 합니다. 규정 답변은 문서명, 조항 번호, PDF 페이지를 표시하고 원문을 길게 재현하지 않습니다.
 
 권리 검토를 통과한 문서는 `data/private/rag/`에 두고 [manifest 예시](docs/rag-manifest.example.json)를 복사해 파일별 HTTPS 출처, 효력일, 라이선스 근거, SHA-256을 기록합니다. 기본 검증은 외부 요청 없이 다음처럼 실행합니다:
 
