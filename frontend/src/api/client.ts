@@ -7,6 +7,22 @@ export type User = { id: UserId; username: string; team_code: TeamCode; role: Us
 export type TeamSummary = { username: string; team_code: TeamCode; role: UserRole; season: number };
 export type Game = { game_pk: string; game_date: string; home_team_code: string; away_team_code: string; home_score: number | null; away_score: number | null; status: string };
 export type Pitcher = { id: number | string; pitcher_name: string; games: number; batters_faced: number | null; strikeouts: number; walks: number; k_pct: number | null; bb_pct: number | null; k_minus_bb_pct: number | null; stat_source?: "KBO_OFFICIAL" };
+export type Batter = {
+  player_id: string; player_name: string; team_code: string; games: number;
+  plate_appearances: number; at_bats: number; hits: number; singles: number;
+  doubles: number; triples: number; home_runs: number; walks: number;
+  strikeouts: number; hit_by_pitch: number; sacrifice_flies: number;
+  sacrifice_bunts: number; unclassified_outcomes: number; total_bases: number;
+  batting_average: number | null; on_base_percentage: number | null;
+  slugging_percentage: number | null; ops: number | null;
+};
+export type TeamBattingStats = {
+  season: number; team_code: string; as_of_date: string | null;
+  cutoff: "EXCLUSIVE" | null; stat_source: "PBP_DERIVED";
+  stat_definition: string; snapshot_id: string | null; source_name: string | null;
+  coverage: { date_min: string | null; date_max: string | null; accepted_plate_appearances: number };
+  count: number; data: Batter[]; limitations: string[];
+};
 export type AsOfPitcher = { pitcher_id: string; pitcher_name: string; batters_faced: number; identity_status: string };
 export type MatchupBatter = { batter_id: string; batter_name: string; batter_stand: string | null; last_seen_date: string };
 export type MatchupGame = { game_pk: string; game_date: string; home_team_code: string; away_team_code: string; opponent_team_code: string; home_score: number | null; away_score: number | null; status: string; lineup_source: string; batters: MatchupBatter[]; batters_count: number };
@@ -84,6 +100,7 @@ export const api = {
   team: () => request<TeamSummary>("/api/teams/me"),
   games: (phase: SeasonPhase = "REGULAR") => request<TeamGamesResponse>(`/api/teams/me/games?season=2026&season_type=${phase === "REGULAR" ? "REGULAR" : "POSTSEASON"}${phase === "REGULAR" ? "" : `&season_phase=${phase}`}`),
   pitchers: (phase: SeasonPhase = "REGULAR") => request<TeamPitchersResponse>(`/api/teams/me/pitchers?season=2026&season_type=${phase}`),
+  batters: (season: number, asOfDate: string) => request<TeamBattingStats>(`/api/teams/me/batters?season=${season}&as_of_date=${encodeURIComponent(asOfDate)}`),
   asOfPitchers: (asOfDate: string) => request<{ data: AsOfPitcher[] }>(`/api/teams/me/pitchers?season=2026&as_of_date=${encodeURIComponent(asOfDate)}`),
   matchupBatters: (opponent: TeamCode, asOfDate: string, query: string) => request<{ data: MatchupBatter[] }>(`/api/teams/me/matchup-batters?opponent_team_code=${encodeURIComponent(opponent)}&season=2026&as_of_date=${encodeURIComponent(asOfDate)}&query=${encodeURIComponent(query)}`),
   matchupGames: (gameDate: string) => request<{ team_code: TeamCode; game_date: string; count: number; data: MatchupGame[]; note: string }>(`/api/teams/me/matchup-games?season=2026&game_date=${encodeURIComponent(gameDate)}`),
