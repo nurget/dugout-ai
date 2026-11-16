@@ -110,6 +110,16 @@ async def test_authenticated_sse_persists_messages_and_run(
                 "/api/teams/me/data-status"
             )
             assert unauthorized_status.status_code == 401
+            unauthorized_batter_stats = await client.get(
+                "/api/teams/me/batters",
+                params={"season": 2025},
+            )
+            assert unauthorized_batter_stats.status_code == 401
+            unauthorized_pbp_pitchers = await client.get(
+                "/api/teams/me/pbp-pitchers",
+                params={"season": 2025},
+            )
+            assert unauthorized_pbp_pitchers.status_code == 401
             unauthorized_matchup_search = await client.get(
                 "/api/teams/me/matchup-batters",
                 params={"opponent_team_code": "LG", "as_of_date": "2026-06-30"},
@@ -193,6 +203,28 @@ async def test_authenticated_sse_persists_messages_and_run(
                 for row in data_status.json()["data"]
             )
 
+            batter_stats = await client.get(
+                "/api/teams/me/batters",
+                headers=headers,
+                params={
+                    "season": 2025,
+                    "as_of_date": "2025-06-30",
+                },
+            )
+            assert batter_stats.status_code == 200
+            assert batter_stats.json()["stat_source"] == "PBP_DERIVED"
+            assert batter_stats.json()["as_of_date"] == "2025-06-30"
+            assert batter_stats.json()["data"] == []
+
+            pbp_pitcher_stats = await client.get(
+                "/api/teams/me/pbp-pitchers",
+                headers=headers,
+                params={"season": 2025},
+            )
+            assert pbp_pitcher_stats.status_code == 200
+            assert pbp_pitcher_stats.json()["stat_source"] == "PBP_DERIVED"
+            assert pbp_pitcher_stats.json()["data"] == []
+
             as_of_pitchers = await client.get(
                 "/api/teams/me/pitchers",
                 headers=headers,
@@ -248,6 +280,7 @@ async def test_authenticated_sse_persists_messages_and_run(
                 "kbo_official_season_pitchers": None,
                 "kbo_pbp_pitching": None,
                 "kbo_plate_appearances": None,
+                "kbo_pitch_events": None,
             }
             assert run.json()["tools"][0]["name"] == "get_game_state"
     finally:

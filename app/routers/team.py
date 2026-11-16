@@ -153,6 +153,62 @@ async def get_my_team_pitchers(
     }
 
 
+@router.get("/batters")
+async def get_my_team_batting_stats(
+    current_user: CurrentUser,
+    session: SessionDep,
+    season: int = Query(default=2026, ge=1982, le=2100),
+    as_of_date: date | None = Query(default=None),
+    name: str | None = Query(default=None, min_length=1, max_length=80),
+):
+    """로그인 구단의 PBP 파생 타자 누적 기록을 반환한다."""
+    if as_of_date is not None:
+        if as_of_date.year != season:
+            raise HTTPException(status_code=422, detail="기준일과 시즌 연도가 일치해야 합니다.")
+        if as_of_date > datetime.now(ZoneInfo("Asia/Seoul")).date():
+            raise HTTPException(status_code=422, detail="기준일은 미래일 수 없습니다.")
+    from app.services.pbp_season_stats import get_team_batting_stats
+
+    try:
+        return await get_team_batting_stats(
+            session,
+            season=season,
+            team_code=current_user.team_code,
+            as_of_date=as_of_date,
+            name=name,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.get("/pbp-pitchers")
+async def get_my_team_pbp_pitching_stats(
+    current_user: CurrentUser,
+    session: SessionDep,
+    season: int = Query(default=2026, ge=1982, le=2100),
+    as_of_date: date | None = Query(default=None),
+    name: str | None = Query(default=None, min_length=1, max_length=80),
+):
+    """로그인 구단의 완료 타석 PBP에서 계산한 투수 성적을 반환한다."""
+    if as_of_date is not None:
+        if as_of_date.year != season:
+            raise HTTPException(status_code=422, detail="기준일과 시즌 연도가 일치해야 합니다.")
+        if as_of_date > datetime.now(ZoneInfo("Asia/Seoul")).date():
+            raise HTTPException(status_code=422, detail="기준일은 미래일 수 없습니다.")
+    from app.services.pbp_season_stats import get_team_pbp_pitching_stats
+
+    try:
+        return await get_team_pbp_pitching_stats(
+            session,
+            season=season,
+            team_code=current_user.team_code,
+            as_of_date=as_of_date,
+            name=name,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
 @router.get("/data-status")
 async def get_my_team_data_status(
     current_user: CurrentUser,

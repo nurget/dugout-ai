@@ -149,6 +149,16 @@ async def test_rejects_model_supplied_team_code():
             "team",
         ),
         (
+            "search_season_batters",
+            {"season": 2025, "name": "김", "as_of_date": "2025-06-30"},
+            "team",
+        ),
+        (
+            "search_pbp_pitchers",
+            {"season": 2025, "name": "이", "as_of_date": "2025-06-30"},
+            "team",
+        ),
+        (
             "compare_pitchers",
             {
                 "season": 2026,
@@ -184,3 +194,22 @@ async def test_player_tools_use_authenticated_team(
     assert result["ok"] is True
     called_kwargs = handler.await_args.kwargs
     assert called_kwargs[team_argument] == "KIA"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["search_season_batters", "search_pbp_pitchers"])
+async def test_pbp_stat_tools_use_server_as_of_and_season(monkeypatch, tool_name):
+    handler = AsyncMock(return_value={"stat_source": "PBP_DERIVED"})
+    schema_class, _ = registry.TOOL_REGISTRY[tool_name]
+    monkeypatch.setitem(registry.TOOL_REGISTRY, tool_name, (schema_class, handler))
+
+    result = await registry.execute_tool(
+        session=None,
+        tool_name=tool_name,
+        arguments={"season": 2024, "name": "김", "as_of_date": "2024-05-01"},
+        context=SimpleNamespace(team_code="KIA", as_of_date=date(2025, 6, 30)),
+    )
+
+    assert result["ok"] is True
+    assert handler.await_args.kwargs["season"] == 2025
+    assert handler.await_args.kwargs["as_of_date"] == date(2025, 6, 30)

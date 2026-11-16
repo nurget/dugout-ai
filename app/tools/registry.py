@@ -19,6 +19,10 @@ from app.tools.pitcher_comparison import (
     search_season_pitchers_tool,
     compare_pitchers_tool,
 )
+from app.tools.pbp_season_stats import (
+    search_season_batters_tool,
+    search_pbp_pitchers_tool,
+)
 
 from app.tools.schemas import (
     GameStateInput,
@@ -26,6 +30,8 @@ from app.tools.schemas import (
     BullpenOptionsInput,
     PitchingDecisionInput,
     SearchSeasonPitchersInput,
+    SearchSeasonBattersInput,
+    SearchPbpPitchersInput,
     ComparePitchersInput,
 )
 
@@ -62,6 +68,14 @@ TOOL_REGISTRY = {
         SearchSeasonPitchersInput,
         search_season_pitchers_tool,
     ),
+    "search_season_batters": (
+        SearchSeasonBattersInput,
+        search_season_batters_tool,
+    ),
+    "search_pbp_pitchers": (
+        SearchPbpPitchersInput,
+        search_pbp_pitchers_tool,
+    ),
     "compare_pitchers": (
         ComparePitchersInput,
         compare_pitchers_tool,
@@ -89,6 +103,8 @@ TEAM_SCOPED_TOOLS = frozenset({
     "get_pitcher_status",
     "get_bullpen_options",
     "search_season_pitchers",
+    "search_season_batters",
+    "search_pbp_pitchers",
     "compare_pitchers",
     "get_bullpen_workload",
     "compare_bullpen_candidates",
@@ -98,6 +114,8 @@ TEAM_ARGUMENT_BY_TOOL = {
     "get_pitcher_status": "authenticated_team_code",
     "get_bullpen_options": "team",
     "search_season_pitchers": "team",
+    "search_season_batters": "team",
+    "search_pbp_pitchers": "team",
     "compare_pitchers": "team",
     "get_bullpen_workload": "authenticated_team_code",
     "compare_bullpen_candidates": "authenticated_team_code",
@@ -164,10 +182,12 @@ async def execute_tool(
                 "get_bullpen_workload",
                 "compare_bullpen_candidates",
                 "search_season_pitchers",
+                "search_season_batters",
+                "search_pbp_pitchers",
                 "compare_pitchers",
             }:
                 kwargs["as_of_date"] = context_as_of_date
-            if tool_name in {"search_season_pitchers", "compare_pitchers"}:
+            if tool_name in {"search_season_pitchers", "search_season_batters", "search_pbp_pitchers", "compare_pitchers"}:
                 kwargs["season"] = context_as_of_date.year
 
         if is_team_scoped:

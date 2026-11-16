@@ -62,6 +62,46 @@ SEARCH_PRIVATE_BASEBALL_RULES_DEFINITION = {
     "strict": True,
 }
 
+SEARCH_SEASON_BATTERS_DEFINITION = {
+    "type": "function",
+    "name": "search_season_batters",
+    "description": (
+        "로그인 구단의 기준일 이전 PBP 파생 타격 기록에서 타자를 검색한다. "
+        "타율·출루율·장타율·OPS와 표본을 반환하며 공식 기록으로 표현하지 않는다."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "season": {"type": "integer", "description": "조회 시즌"},
+            "name": {"type": "string", "description": "타자 이름 또는 일부"},
+            "as_of_date": {"type": "string", "description": "기준일 YYYY-MM-DD. 해당 날짜 경기 제외"},
+        },
+        "required": ["season", "name", "as_of_date"],
+        "additionalProperties": False,
+    },
+    "strict": True,
+}
+
+SEARCH_PBP_PITCHERS_DEFINITION = {
+    "type": "function",
+    "name": "search_pbp_pitchers",
+    "description": (
+        "로그인 구단의 기준일 이전 PBP 파생 투수 기록에서 투수를 검색한다. "
+        "BF·K·BB·피안타와 K-BB%를 반환하며 공식 기록이나 구위로 단정하지 않는다."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "season": {"type": "integer", "description": "조회 시즌"},
+            "name": {"type": "string", "description": "투수 이름 또는 일부"},
+            "as_of_date": {"type": "string", "description": "기준일 YYYY-MM-DD. 해당 날짜 경기 제외"},
+        },
+        "required": ["season", "name", "as_of_date"],
+        "additionalProperties": False,
+    },
+    "strict": True,
+}
+
 GET_BULLPEN_WORKLOAD_DEFINITION = {
     "type": "function",
     "name": "get_bullpen_workload",
@@ -127,6 +167,8 @@ AGENT_TOOLS = [
     FINALIZE_ANALYSIS_DEFINITION,
     SEARCH_BASEBALL_KNOWLEDGE_DEFINITION,
     SEARCH_PRIVATE_BASEBALL_RULES_DEFINITION,
+    SEARCH_SEASON_BATTERS_DEFINITION,
+    SEARCH_PBP_PITCHERS_DEFINITION,
     {
         "type": "function",
         "name": "get_game_state",
