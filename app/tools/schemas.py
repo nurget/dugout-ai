@@ -37,6 +37,22 @@ class SearchSeasonPitchersInput(BaseModel):
     as_of_date: date = Field(description="기준일. 해당 날짜의 모든 경기 기록은 제외합니다.")
 
 
+class SearchSeasonBattersInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    season: int = Field(ge=1982, le=2100)
+    name: str = Field(min_length=1, max_length=80)
+    as_of_date: date = Field(description="기준일. 해당 날짜의 모든 경기 기록은 제외합니다.")
+
+
+class SearchPbpPitchersInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    season: int = Field(ge=1982, le=2100)
+    name: str = Field(min_length=1, max_length=80)
+    as_of_date: date = Field(description="기준일. 해당 날짜의 모든 경기 기록은 제외합니다.")
+
+
 class ComparePitchersInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -125,6 +125,20 @@ def test_public_knowledge_tool_is_scoped_to_document_questions_and_configuration
     }
 
 
+def test_pbp_player_stat_tools_are_exposed_only_for_stat_questions():
+    ordinary = streaming.tools_for_message("불펜 후보를 비교해줘.")
+    batting = streaming.tools_for_message("2025년 김타자의 타격 기록과 타율을 알려줘.")
+    pitching = streaming.tools_for_message("2025년 이투수의 PBP 투수 기록을 알려줘.")
+
+    ordinary_names = {tool["name"] for tool in ordinary}
+    batting_names = {tool["name"] for tool in batting}
+    pitching_names = {tool["name"] for tool in pitching}
+    assert "search_season_batters" not in ordinary_names
+    assert "search_pbp_pitchers" not in ordinary_names
+    assert "search_season_batters" in batting_names
+    assert "search_pbp_pitchers" in pitching_names
+
+
 @pytest.mark.asyncio
 async def test_authenticated_team_scope_is_provided_to_planning_model():
     client = SimpleNamespace(

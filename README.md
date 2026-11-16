@@ -121,6 +121,8 @@ uv run python -m scripts.create_demo_user --username demo --team KIA --role COAC
 | `GET` | `/api/teams/me` | 인증 구단·역할 조회 |
 | `GET` | `/api/teams/me/games` | 인증 구단 경기 조회 |
 | `GET` | `/api/teams/me/pitchers` | 인증 구단 투수 지표 조회 (`as_of_date` 입력 시 과거 누적 재계산) |
+| `GET` | `/api/teams/me/batters` | 기준일 이전 PBP 파생 타자 누적 지표 조회 |
+| `GET` | `/api/teams/me/pbp-pitchers` | 기준일 이전 PBP 파생 투수·구종·구속 지표 조회 |
 | `GET` | `/api/teams/me/data-status` | KBO 데이터셋 출처·적재·품질 상태 조회 |
 | `GET` | `/api/teams/me/matchup-games` | 경기 날짜에 소속 구단이 치른 경기와 PBP 관측 타자 조회 |
 | `GET` | `/api/teams/me/matchup-batters` | 기준일 이전 경기에서 상대 타자 ID와 좌우 타석 정보 검색 |
@@ -199,6 +201,7 @@ uv run alembic downgrade -1
 - 내려받은 파일을 먼저 dry-run 검증합니다: `uv run python -m scripts.import_kbo_plate_appearances data/private/kbo_pbp_2026_hf.parquet --season 2026 --source kbo_pbp_naver_sports_cc_by_4.0`. DB에 적재하려면 기존 DB 스키마와 migration 상태를 확인한 뒤 `--apply`를 추가합니다.
 - PBP 데이터셋은 [배포자 저장소](https://github.com/slothman3878/kbo_pbp_naver_sports)와 [데이터 카드](https://huggingface.co/datasets/slothman3878/kbo_playbyplay)에 명시된 출처·라이선스를 확인해야 합니다. 배포자는 Naver Sports 중계 API 기반이며 데이터셋 라이선스를 CC BY 4.0으로 표시합니다. 서비스 운영 전에는 원천 데이터의 상업적 사용 및 재배포 권한도 확인해야 합니다.
 - PBP 투구 행을 DB에 보존하려면 먼저 `uv run alembic upgrade head`를 적용하고, `uv run python -m scripts.import_kbo_pitch_events data/private/kbo_pbp_2025.parquet --season 2025`로 검증합니다. DB에 반영할 때만 `--apply`를 추가합니다. 시즌별 파일은 `2023`, `2024`, `2025`, `2026`이며 원본 파일과 라이선스 출처 manifest는 Git에서 제외되는 `data/private/`에 둡니다. 투구별 결과, 구종명, 구속·좌표, 타석 전후 주자·아웃·점수 등 데이터셋 원본 필드는 `raw_payload`에 보존합니다.
+- 인증 구단의 PBP 파생 타격 기록은 `/api/teams/me/batters`, PBP 파생 투수 기록은 `/api/teams/me/pbp-pitchers`에서 시즌과 기준일을 지정해 조회할 수 있습니다. 이 집계는 완료 PBP 타석에서 계산하며 공식 KBO 시즌 기록이 아닙니다. 타자·투수 기록 질문에는 Agent가 관련 검색 도구를 사용하지만, 해당 도구 정의는 통계 질문에서만 전달합니다.
 - 적재된 PBP 행 수는 `uv run python -m scripts.audit_kbo_pitch_events`로 시즌별 확인할 수 있습니다.
 - 현재 확보한 PBP는 2023–2026 일부 시즌의 중계 기반 투구 로그입니다. 공식 시즌 타자·투수 누적 기록 전체, 수비·주루·등록·부상·컨디션 기록까지 포함하지 않으며, PBP에서 계산한 결과를 공식 기록으로 표시하지 않습니다. 전체 기록 확장은 KBO가 제공하는 공식 API나 서면 허가, 또는 해당 항목을 포함하고 재사용 권한이 명시된 데이터 출처를 확인한 뒤 진행합니다. 상세 범위는 [KBO 데이터 범위 문서](docs/kbo-data-coverage.md)를 참고하세요.
 - `as_of_date` 분석은 적재된 경기별 기록을 기준일 이전 종료 경기로 다시 집계합니다. 날짜 안의 경기 순서는 구분하지 않습니다.

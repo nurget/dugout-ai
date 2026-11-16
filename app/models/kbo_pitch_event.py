@@ -1,6 +1,6 @@
 from datetime import date
 
-from sqlalchemy import Date, Float, ForeignKey, Integer, JSON, String, UniqueConstraint
+from sqlalchemy import Date, Float, ForeignKey, Index, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -39,5 +39,13 @@ class KboPitchEvent(Base):
         UniqueConstraint(
             "game_pk", "at_bat_number", "pitch_number",
             name="uq_kbo_pitch_event_game_ab_pitch",
+        ),
+        Index(
+            "ix_kbo_pitch_events_home_team_scope",
+            "season", "home_team_code", "inning_topbot", "game_date",
+        ),
+        Index(
+            "ix_kbo_pitch_events_away_team_scope",
+            "season", "away_team_code", "inning_topbot", "game_date",
         ),
     )

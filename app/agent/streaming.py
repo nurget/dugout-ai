@@ -31,9 +31,15 @@ logger = logging.getLogger(__name__)
 
 AS_OF_TOOLS = {
     "search_season_pitchers",
+    "search_season_batters",
+    "search_pbp_pitchers",
     "compare_pitchers",
     "compare_bullpen_candidates",
 }
+PLAYER_STATS_INTENT_TERMS = (
+    "기록", "성적", "타율", "출루율", "장타율", "ops", "타석", "홈런",
+    "삼진", "볼넷", "k-bb", "피안타",
+)
 WORKLOAD_INTENT_TERMS = (
     "최근 투구", "투구 부담", "투구수", "투구 수", "휴식", "연투",
     "등판 가능", "등판시켜", "출전 가능", "불펜 가용", "가용성", "컨디션",
@@ -57,6 +63,7 @@ def tools_for_message(
     """Expose optional tools only for relevant requests to reduce prompt cost."""
     normalized = message.casefold()
     asks_about_workload = any(term in normalized for term in WORKLOAD_INTENT_TERMS)
+    asks_about_player_stats = any(term in normalized for term in PLAYER_STATS_INTENT_TERMS)
     if knowledge_enabled is None:
         knowledge_enabled = bool(settings.openai_public_knowledge_vector_store_id)
     asks_about_knowledge = any(term in normalized for term in KNOWLEDGE_INTENT_TERMS)
@@ -74,6 +81,8 @@ def tools_for_message(
         unavailable_tools.add(SEARCH_PRIVATE_BASEBALL_RULES_TOOL_NAME)
     if private_knowledge_enabled and asks_about_private_rules:
         unavailable_tools.add(SEARCH_BASEBALL_KNOWLEDGE_TOOL_NAME)
+    if not asks_about_player_stats:
+        unavailable_tools.update({"search_season_batters", "search_pbp_pitchers"})
     return [
         tool for tool in AGENT_TOOLS
         if tool.get("name") not in unavailable_tools
