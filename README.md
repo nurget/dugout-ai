@@ -272,6 +272,22 @@ uv run python -m scripts.recommendation_eval run
 
 비교 카드의 코치 검토는 이 평가 데이터 수집을 위한 초벌 피드백이며, 독립 검토와 라벨 프로토콜 승인 전에는 정답 라벨이나 정확도 성적으로 계산하지 않습니다. 현재 검토 결과는 원본 추천과 데이터 snapshot에 묶어 DB에 저장되며, 평가 JSONL로 공개 내보내거나 성적에 자동 반영하지 않습니다.
 
+저장된 코치 검토를 승인 전 평가 후보로 내보낼 때는 검토자 비식별화 솔트를 설정합니다. 결과는 `data/private/` 아래에만 권한 `0600`으로 생성되고 모든 라벨은 `PENDING` 상태를 유지합니다. `ACCEPTABLE_SET`이 아니거나 데이터 snapshot이 없는 검토는 평가 케이스에서 제외되며 사유가 `audit.jsonl`에 남습니다.
+
+```bash
+export RECOMMENDATION_EVAL_REVIEWER_SALT="$(openssl rand -hex 32)"
+
+uv run python -m scripts.recommendation_eval export-reviews \
+  --output-dir data/private/recommendation-eval/coach-review-v1 \
+  --label-protocol-version coach-review-v1
+
+uv run python -m scripts.recommendation_eval validate \
+  --dataset data/private/recommendation-eval/coach-review-v1/dataset.jsonl \
+  --fixtures data/private/recommendation-eval/coach-review-v1/fixtures.json
+```
+
+내보낸 `PENDING` 라벨은 독립 검토자가 후보군·기준일·스냅샷을 확인해 `APPROVED`로 승인하기 전까지 `approved_real_metrics`에 포함되지 않습니다. 원본 사용자 UUID, 대화 내용과 질문 원문은 내보내지 않습니다.
+
 ### 에이전트 평가 데이터셋
 
 ```bash
