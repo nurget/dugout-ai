@@ -12,6 +12,20 @@ export type KboPlayerRecord = { player_id: string; player_name: string; team_cod
 export type KboTeamCategory = "standings" | "batting" | "pitching" | "defense" | "running";
 export type KboTeamRecord = { team_code: string; raw_fields: Record<string, string>; metrics?: Record<string, number | null>; source_url: string; source_urls?: string[]; collected_at?: string | null; imported_at: string };
 export type KboTeamRecordsResponse = { season: number; category: KboTeamCategory; count: number; data: KboTeamRecord[]; note: string };
+export type CoverageStatus = "COMPLETE" | "PARTIAL" | "EMPTY";
+export type KboDataCoverage = {
+  season: number;
+  team_code: string | null;
+  generated_at: string;
+  overall_status: CoverageStatus;
+  sections: {
+    records: { status: CoverageStatus; batter_count: number; pitcher_count: number; team_record_categories_loaded: string[]; team_record_categories_expected: string[]; team_record_count: number; collected_at: string | null; imported_at: string | null };
+    schedule: { status: CoverageStatus; game_count: number; completed_game_count: number; date_from: string | null; date_through: string | null; imported_at: string | null };
+    boxscores: { status: CoverageStatus; expected_completed_games: number; loaded_completed_games: number; coverage_rate: number | null; lineup_rows: number; imported_at: string | null };
+    matchups: { status: CoverageStatus; expected_completed_games: number; covered_completed_games: number; coverage_rate: number | null; plate_appearances: number; pitch_events: number; date_from: string | null; date_through: string | null; note: string };
+  };
+  limitations: string[];
+};
 export type KboGameBoxscore = { game_pk: string; game_date: string; source_url: string; teams: Array<{ team_code: string; batters: Array<{ player_id: string; player_name: string; batting_order: number; is_starter: boolean; position?: string | null; raw_fields: Record<string, string> }>; pitchers?: Array<{ player_id: string; player_name: string; raw_fields: Record<string, string> }> }> };
 export type Pitcher = { id: number | string; pitcher_name: string; games: number; batters_faced: number | null; strikeouts: number; walks: number; k_pct: number | null; bb_pct: number | null; k_minus_bb_pct: number | null; stat_source?: "KBO_RECORDS" };
 export type Batter = {
@@ -143,7 +157,11 @@ export const api = {
     if (teamCode) query.set("team_code", teamCode);
     return request<KboTeamRecordsResponse>(`/api/kbo/records/teams?${query}`);
   },
-  kboCoverage: (season: number) => request<{ season: number; stat_source: string; data: Array<{ scope: "players" | "teams"; category: string; season_type: string; count: number; collected_at: string | null; imported_at: string | null }> }>(`/api/kbo/records/coverage?season=${season}`),
+  kboCoverage: (season: number, teamCode?: string) => {
+    const query = new URLSearchParams({ season: String(season) });
+    if (teamCode) query.set("team_code", teamCode);
+    return request<KboDataCoverage>(`/api/kbo/records/coverage?${query}`);
+  },
   matchupCalendar: (season: number) => request<{ season: number; latest_game_date: string | null; data: Array<{ game_date: string; count: number }> }>(`/api/kbo/matchups/calendar?season=${season}`),
   matchupPitchers: (gameDate: string) => request<{ data: Array<AsOfPitcher & { batters_faced: number | null; record_source: string; season_fields?: Record<string, string> }>; note: string }>(`/api/kbo/matchups/pitchers?season=${gameDate.slice(0, 4)}&game_date=${encodeURIComponent(gameDate)}`),
   kboGameDetails: (gamePk: string) => request<KboGameBoxscore>(`/api/kbo/games/${encodeURIComponent(gamePk)}/boxscore`),

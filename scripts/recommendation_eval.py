@@ -1,6 +1,8 @@
 """Run the deterministic bullpen ranking evaluation dataset."""
 
 import argparse
+import asyncio
+from datetime import datetime, timezone
 import json
 import os
 import stat
@@ -11,6 +13,10 @@ from app.evaluation.recommendation_eval import (
     load_recommendation_dataset,
     load_recommendation_fixtures,
 )
+from app.evaluation.recommendation_export import build_recommendation_export
+from app.db.session import AsyncSessionLocal
+from app.models.recommendation_review import RecommendationReview
+from sqlalchemy import select
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,15 +34,72 @@ def _require_private_file(path: Path) -> Path:
     return resolved
 
 
+def _private_output_dir(path: Path) -> Path:
+    resolved = path.resolve()
+    if not resolved.is_relative_to(PRIVATE_DIR):
+        raise ValueError("추천 평가 내보내기 경로는 data/private/ 아래여야 합니다.")
+    resolved.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(resolved, 0o700)
+    return resolved
+
+
+def _write_private(path: Path, content: str, *, force: bool) -> None:
+    if path.exists() and not force:
+        raise ValueError(f"기존 파일을 덮어쓰지 않습니다. --force가 필요합니다: {path}")
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(descriptor, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+        output.write(content)
+    temporary.replace(path)
+    os.chmod(path, 0o600)
+
+
+async def _export_reviews(args) -> None:
+    salt = os.getenv("RECOMMENDATION_EVAL_REVIEWER_SALT", "")
+    query = select(RecommendationReview).order_by(
+        RecommendationReview.updated_at,
+        RecommendationReview.review_id,
+    )
+    if args.team_code:
+        query = query.where(RecommendationReview.team_code == args.team_code)
+    async with AsyncSessionLocal() as session:
+        reviews = list((await session.scalars(query)).all())
+    export = build_recommendation_export(
+        reviews,
+        reviewer_salt=salt,
+        label_protocol_version=args.label_protocol_version,
+    )
+    output_dir = _private_output_dir(args.output_dir)
+    dataset = "".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n" for row in export.cases)
+    fixtures = json.dumps({
+        "notice": "PRIVATE HUMAN REVIEW CANDIDATES. PENDING labels are excluded from approved real metrics.",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "fixtures": export.fixtures,
+    }, ensure_ascii=False, indent=2) + "\n"
+    audit = "".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n" for row in export.audit)
+    _write_private(output_dir / "dataset.jsonl", dataset, force=args.force)
+    _write_private(output_dir / "fixtures.json", fixtures, force=args.force)
+    _write_private(output_dir / "audit.jsonl", audit, force=args.force)
+    print(json.dumps({"output_dir": str(output_dir), **export.summary}, ensure_ascii=False, indent=2))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("validate", "run"))
+    parser.add_argument("command", choices=("validate", "run", "export-reviews"))
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
     parser.add_argument("--fixtures", type=Path, default=DEFAULT_FIXTURES)
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--output-dir", type=Path, default=PRIVATE_DIR / "recommendation-eval/latest")
+    parser.add_argument("--team-code")
+    parser.add_argument("--label-protocol-version", default="coach-review-v1")
+    parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
     try:
+        if args.command == "export-reviews":
+            asyncio.run(_export_reviews(args))
+            return
         cases = load_recommendation_dataset(args.dataset)
         fixtures = load_recommendation_fixtures(args.fixtures)
         missing = sorted({case["fixture_ref"] for case in cases} - fixtures.keys())

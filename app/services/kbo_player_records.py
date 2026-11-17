@@ -300,7 +300,37 @@ def player_qualification(row: KboPlayerRecord, team_games: dict[str, dict[str, A
     return qualification
 
 
-def record_metrics(fields: dict[str, str], category: str) -> dict[str, float | None]:
+def pitcher_fip_constant(rows: list[dict[str, str]]) -> float | None:
+    """Set league FIP to league ERA using only complete team pitching totals."""
+    totals = {key: 0.0 for key in ("outs", "er", "hr", "bb", "hbp", "so")}
+    accepted = 0
+    for fields in rows:
+        outs = innings_to_outs(fields.get("IP"))
+        values = {key: field_number(fields, source) for key, source in (
+            ("er", "ER"), ("hr", "HR"), ("bb", "BB"), ("hbp", "HBP"), ("so", "SO"),
+        )}
+        if outs is None or outs <= 0 or any(value is None for value in values.values()):
+            continue
+        totals["outs"] += outs
+        for key, value in values.items():
+            totals[key] += value or 0
+        accepted += 1
+    if not accepted or totals["outs"] <= 0:
+        return None
+    innings = totals["outs"] / 3
+    league_era = 9 * totals["er"] / innings
+    fielding_independent = (
+        13 * totals["hr"] + 3 * (totals["bb"] + totals["hbp"]) - 2 * totals["so"]
+    ) / innings
+    return round(league_era - fielding_independent, 3)
+
+
+def record_metrics(
+    fields: dict[str, str],
+    category: str,
+    *,
+    fip_constant: float | None = None,
+) -> dict[str, float | None]:
     """Calculate only metrics whose complete denominator is present in the source."""
     avg = field_number(fields, "AVG")
     obp = field_number(fields, "OBP")
@@ -313,11 +343,34 @@ def record_metrics(fields: dict[str, str], category: str) -> dict[str, float | N
     so, bb = field_number(fields, "SO"), field_number(fields, "BB")
     k_pct = round(100 * so / denominator, 2) if denominator and so is not None else None
     bb_pct = round(100 * bb / denominator, 2) if denominator and bb is not None else None
+    is_pitcher = category in {"pitcher", "pitching"}
+    hits, home_runs = field_number(fields, "H"), field_number(fields, "HR")
+    hbp = field_number(fields, "HBP", "HP")
+    at_bats, sacrifice_flies = field_number(fields, "AB"), field_number(fields, "SF")
+    sacrifice_bunts = field_number(fields, "SAC", "SH")
+    babip_denominator = None
+    if is_pitcher and all(value is not None for value in (denominator, bb, hbp, sacrifice_bunts, so, home_runs)):
+        babip_denominator = denominator - bb - hbp - sacrifice_bunts - so - home_runs
+    elif not is_pitcher and all(value is not None for value in (at_bats, so, home_runs, sacrifice_flies)):
+        babip_denominator = at_bats - so - home_runs + sacrifice_flies
+    babip = round((hits - home_runs) / babip_denominator, 3) if (
+        hits is not None and home_runs is not None and babip_denominator is not None and babip_denominator > 0
+    ) else None
+    outs = innings_to_outs(fields.get("IP")) if is_pitcher else None
+    innings = outs / 3 if outs else None
+    k_per_9 = round(9 * so / innings, 2) if innings and so is not None else None
+    bb_per_9 = round(9 * bb / innings, 2) if innings and bb is not None else None
+    hr_per_9 = round(9 * home_runs / innings, 2) if innings and home_runs is not None else None
+    fip = round((13 * home_runs + 3 * (bb + hbp) - 2 * so) / innings + fip_constant, 2) if (
+        innings and fip_constant is not None and all(value is not None for value in (home_runs, bb, hbp, so))
+    ) else None
     return {
         "avg": avg, "obp": obp, "slg": slg, "ops": ops, "iso": iso,
         "era": field_number(fields, "ERA"), "whip": field_number(fields, "WHIP"),
         "k_pct": k_pct, "bb_pct": bb_pct,
         "k_minus_bb_pct": round(k_pct - bb_pct, 2) if k_pct is not None and bb_pct is not None else None,
+        "babip": babip, "k_per_9": k_per_9, "bb_per_9": bb_per_9,
+        "hr_per_9": hr_per_9, "fip": fip, "fip_constant": fip_constant if is_pitcher else None,
     }
 
 
@@ -351,12 +404,18 @@ async def filter_primary_batters(session: AsyncSession, rows: list[KboPlayerReco
     return [row for row in rows if not is_primary_pitcher(row, pitcher_ids)]
 
 
-def serialize_player_record(row: KboPlayerRecord, position: str | None = None) -> dict[str, Any]:
+def serialize_player_record(
+    row: KboPlayerRecord,
+    position: str | None = None,
+    *,
+    fip_constant: float | None = None,
+) -> dict[str, Any]:
     return {
         "player_id": row.player_id, "player_name": row.player_name,
         "team_code": canonical_team_code(row.team_code), "category": row.category,
         "position": position or player_position(row), "profile": row.profile or {},
-        "raw_fields": row.raw_fields, "metrics": record_metrics(row.raw_fields, row.category),
+        "raw_fields": row.raw_fields,
+        "metrics": record_metrics(row.raw_fields, row.category, fip_constant=fip_constant),
         "source_url": row.source_url, "source_urls": row.source_urls or [row.source_url],
         "source_batch_id": row.source_batch_id, "stat_source": "KBO_RECORDS",
         "collected_at": row.collected_at.isoformat() if row.collected_at else None,
@@ -373,6 +432,14 @@ async def get_player_record_payload(
     rows = await get_player_records(session, season=season, category=category,
         season_type=season_type, team_code=team_code, name=name, limit=10000)
     pitcher_ids = await get_pitcher_player_ids(session, season=season, season_type=season_type) if category == "batter" else set()
+    fip_constant = None
+    if category == "pitcher":
+        team_pitching = list((await session.scalars(select(KboTeamRecord).where(
+            KboTeamRecord.season == season,
+            KboTeamRecord.season_type == season_type,
+            KboTeamRecord.category == "pitching",
+        ))).all())
+        fip_constant = pitcher_fip_constant([row.raw_fields for row in team_pitching])
     team_games = await get_qualification_team_games(session, season=season, season_type=season_type)
     data = []
     excluded_pitchers = 0
@@ -381,7 +448,7 @@ async def get_player_record_payload(
         if category == "batter" and not include_pitchers and is_primary_pitcher(row, pitcher_ids):
             excluded_pitchers += 1
             continue
-        record = serialize_player_record(row, position)
+        record = serialize_player_record(row, position, fip_constant=fip_constant)
         record["qualification"] = player_qualification(row, team_games)
         data.append(record)
     qualification_summary = {
@@ -398,6 +465,11 @@ async def get_player_record_payload(
         "include_pitchers": include_pitchers, "excluded_pitchers": excluded_pitchers,
         "qualified_only": qualified_only, "qualification_standards": QUALIFICATION_STANDARDS,
         "qualification_summary": qualification_summary,
+        "metric_context": {
+            "fip_constant": fip_constant,
+            "fip_formula": "(13×HR + 3×(BB+HBP) − 2×SO) ÷ IP + 시즌 상수" if category == "pitcher" else None,
+            "babip_formula": "(H−HR) ÷ (AB−SO−HR+SF)" if category == "batter" else "(H−HR) ÷ (TBF−BB−HBP−SAC−SO−HR)",
+        },
         "stat_source": "KBO_RECORDS", "data": data[:limit],
         "note": "KBO 기록실의 시즌 누적 기록이에요. 투수의 타격 기록은 '투수 타격 포함'을 켜면 볼 수 있어요." if category == "batter" else "KBO 기록실의 시즌 누적 투수 기록이에요.",
     }
