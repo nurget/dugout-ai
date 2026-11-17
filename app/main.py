@@ -4,6 +4,7 @@ from app.routers.health import router as health_router
 from app.routers.agent import router as agent_router
 from app.routers.auth import router as auth_router
 from app.routers.team import router as team_router
+from app.routers.kbo_records import router as kbo_records_router
 
 app = FastAPI(
     title="DUGOUT AI",
@@ -15,6 +16,7 @@ app.include_router(health_router)
 app.include_router(agent_router)
 app.include_router(auth_router)
 app.include_router(team_router)
+app.include_router(kbo_records_router)
 
 
 @app.get("/")

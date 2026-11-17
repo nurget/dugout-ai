@@ -7,11 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import CurrentUser
 from app.db.session import get_db
-from app.services.team_data import (
-    get_team_games,
-    get_team_pitchers,
-    get_team_official_pitchers,
-)
+from app.services.team_data import get_team_games
+from app.services.kbo_player_records import get_player_record_payload, field_number
 from app.services.data_catalog import get_latest_dataset_statuses
 from app.schemas.matchup import LineupMatchupRequest
 
@@ -85,8 +82,11 @@ async def get_my_team_pitchers(
     season: int = Query(default=2026, ge=1982, le=2100),
     season_type: str = Query(default="REGULAR", pattern="^(REGULAR|POSTSEASON|WILDCARD|SEMIPLAYOFF|PLAYOFF|KOREAN_SERIES)$"),
     as_of_date: date | None = Query(default=None),
+    qualified_only: bool = Query(default=False),
 ):
     if as_of_date is not None:
+        if qualified_only:
+            raise HTTPException(status_code=422, detail="규정 기록 필터는 시즌 기록 조회에서만 사용할 수 있어요.")
         if season_type != "REGULAR":
             raise HTTPException(status_code=422, detail="기준일 누적 집계는 정규시즌만 지원합니다.")
         if as_of_date.year != season:
@@ -124,33 +124,15 @@ async def get_my_team_pitchers(
             "limitations": result["limitations"],
         }
 
-    official = await get_team_official_pitchers(
-        session=session,
-        team_code=current_user.team_code,
-        season=season,
-        season_type=season_type,
-    )
-
-    if official:
-        return {"team_code": current_user.team_code, "season": season, "season_type": season_type, "count": len(official), "data": [{"id": f"official-{p.id}", "pitcher_name": p.pitcher_name, "games": p.games, "batters_faced": p.batters_faced, "strikeouts": p.strikeouts, "walks": p.walks, "k_pct": p.k_pct, "bb_pct": p.bb_pct, "k_minus_bb_pct": p.k_minus_bb_pct, "stat_source": "KBO_OFFICIAL"} for p in official], "note": ""}
-    if season_type != "REGULAR":
-        return {"team_code": current_user.team_code, "season": season, "season_type": season_type, "count": 0, "data": [], "note": ""}
-    pitchers = await get_team_pitchers(session=session, team_code=current_user.team_code, season=season)
-    return {
-        "team_code": current_user.team_code,
-        "season": season,
-        "season_type": season_type,
-        "count": len(pitchers),
-        "data": [
-            serialize_model(pitcher)
-            for pitcher in pitchers
-        ],
-        "note": (
-            "투수 통계는 2026년 일부 경기의 "
-            "Play-by-Play 데이터를 기반으로 집계했습니다. "
-            "공식 시즌 전체 기록과 차이가 있을 수 있습니다."
-        ),
-    }
+    result = await get_player_record_payload(session, season=season, category="pitcher",
+        team_code=current_user.team_code, season_type=season_type, qualified_only=qualified_only)
+    for row in result["data"]:
+        fields, metrics = row["raw_fields"], row["metrics"]
+        row.update({"id": row["player_id"], "pitcher_name": row["player_name"],
+            "games": field_number(fields, "G"), "batters_faced": field_number(fields, "TBF", "BF"),
+            "strikeouts": field_number(fields, "SO"), "walks": field_number(fields, "BB"),
+            "k_pct": metrics["k_pct"], "bb_pct": metrics["bb_pct"], "k_minus_bb_pct": metrics["k_minus_bb_pct"]})
+    return result
 
 
 @router.get("/batters")
@@ -160,9 +142,18 @@ async def get_my_team_batting_stats(
     season: int = Query(default=2026, ge=1982, le=2100),
     as_of_date: date | None = Query(default=None),
     name: str | None = Query(default=None, min_length=1, max_length=80),
+    season_type: str = Query(default="REGULAR", pattern="^(REGULAR|POSTSEASON)$"),
+    include_pitchers: bool = Query(default=False),
+    qualified_only: bool = Query(default=False),
 ):
-    """로그인 구단의 PBP 파생 타자 누적 기록을 반환한다."""
+    """KBO 시즌 기록을 표시하고 과거 기준일 요청만 별도 PBP 집계로 처리한다."""
+    if as_of_date is None:
+        return await get_player_record_payload(session, season=season, category="batter",
+            season_type=season_type, team_code=current_user.team_code, name=name,
+            include_pitchers=include_pitchers, qualified_only=qualified_only)
     if as_of_date is not None:
+        if qualified_only:
+            raise HTTPException(status_code=422, detail="규정 기록 필터는 시즌 기록 조회에서만 사용할 수 있어요.")
         if as_of_date.year != season:
             raise HTTPException(status_code=422, detail="기준일과 시즌 연도가 일치해야 합니다.")
         if as_of_date > datetime.now(ZoneInfo("Asia/Seoul")).date():

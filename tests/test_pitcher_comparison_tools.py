@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.db.base import Base
-from app.models.kbo_official_season_pitcher import KboOfficialSeasonPitcher
+from app.models.kbo_season_pitcher import KboSeasonPitcher
 from app.tools.pitcher_comparison import (
     compare_pitchers_tool,
     search_season_pitchers_tool,
@@ -10,24 +10,24 @@ from app.tools.pitcher_comparison import (
 
 
 @pytest.mark.asyncio
-async def test_official_pitcher_tools_apply_team_scope():
+async def test_pitcher_tools_use_pbp_data_and_apply_team_scope():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
         async with engine.begin() as connection:
             await connection.run_sync(
                 Base.metadata.create_all,
-                tables=[KboOfficialSeasonPitcher.__table__],
+                tables=[KboSeasonPitcher.__table__],
             )
 
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
         async with session_factory() as session:
             session.add_all([
-                KboOfficialSeasonPitcher(
+                KboSeasonPitcher(
                     season=2026,
-                    season_type="REGULAR",
                     pitcher_id="HT-1",
                     pitcher_name="테스트 투수",
                     team_code="HT",
+                    source="test_pbp",
                     games=10,
                     batters_faced=100,
                     strikeouts=25,
@@ -36,12 +36,12 @@ async def test_official_pitcher_tools_apply_team_scope():
                     bb_pct=5.0,
                     k_minus_bb_pct=20.0,
                 ),
-                KboOfficialSeasonPitcher(
+                KboSeasonPitcher(
                     season=2026,
-                    season_type="REGULAR",
                     pitcher_id="HT-2",
                     pitcher_name="비교 투수",
                     team_code="HT",
+                    source="test_pbp",
                     games=10,
                     batters_faced=100,
                     strikeouts=20,
@@ -50,12 +50,12 @@ async def test_official_pitcher_tools_apply_team_scope():
                     bb_pct=10.0,
                     k_minus_bb_pct=10.0,
                 ),
-                KboOfficialSeasonPitcher(
+                KboSeasonPitcher(
                     season=2026,
-                    season_type="REGULAR",
                     pitcher_id="SS-1",
                     pitcher_name="테스트 투수",
                     team_code="SS",
+                    source="test_pbp",
                     games=10,
                     batters_faced=100,
                     strikeouts=30,

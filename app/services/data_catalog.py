@@ -20,6 +20,18 @@ DATASETS = {
         "label": "KBO 공식 시즌 투수 기록",
         "source_policy": "KBO 기록실 시즌 누적. 기준 시점 누적 기록으로 간주하지 않음",
     },
+    "kbo_player_records": {
+        "label": "KBO 선수 기록",
+        "source_policy": "KBO 서면 허용 범위 내 선수 시즌 기록. 원문 필드를 보존하며 생성형 AI로 변환하지 않음",
+    },
+    "kbo_team_records": {
+        "label": "KBO 구단 기록",
+        "source_policy": "KBO 기록실 순위·타격·투구·수비·주루 원문 필드. 수집 시각과 출처를 함께 보존",
+    },
+    "kbo_game_lineups": {
+        "label": "KBO 경기 기록지",
+        "source_policy": "KBO 경기별 타순·교체·타격·투수 기록 원문. 시즌 명단과 확인된 선발 타순을 구분",
+    },
     "kbo_pbp_pitching": {
         "label": "Play-by-Play 투수 기록",
         "source_policy": "원본 PBP의 타석 집계. 시즌 범위와 집계 품질 요약을 함께 관리",

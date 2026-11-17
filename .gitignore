@@ -6,6 +6,11 @@ __pycache__/
 # Local KBO datasets
 /data/private/
 
+# Local KBO record collection and import scripts
+/scripts/fetch_kbo_player_records.py
+/scripts/import_kbo_player_records.py
+/docs/kbo-data-usage.md
+
 # Internal design and delivery notes
 /docs/design.md
 /docs/product-evolution-roadmap.md

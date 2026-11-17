@@ -12,6 +12,9 @@ from app.models.conversation_owner import ConversationOwner
 from app.models.data_import_batch import DataImportBatch
 from app.models.kbo_plate_appearance import KboPlateAppearance
 from app.models.kbo_pitch_event import KboPitchEvent
+from app.models.kbo_player_record import KboPlayerRecord
+from app.models.kbo_team_record import KboTeamRecord
+from app.models.kbo_game_lineup import KboGameBoxscore, KboGameLineup
 from app.models.recommendation_review import RecommendationReview
 
 __all__ = [
@@ -33,5 +36,9 @@ __all__ = [
     "DataImportBatch",
     "KboPlateAppearance",
     "KboPitchEvent",
+    "KboPlayerRecord",
+    "KboTeamRecord",
+    "KboGameLineup",
+    "KboGameBoxscore",
     "RecommendationReview",
 ]
