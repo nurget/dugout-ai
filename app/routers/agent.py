@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import date, datetime
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from zoneinfo import ZoneInfo
 
 from app.agent.context import AgentContext
 from app.agent.streaming import stream_agent
@@ -45,6 +44,7 @@ from app.repositories.conversation_owner import (
     require_conversation_access,
 )
 from app.services.data_catalog import get_latest_dataset_statuses
+from app.services.analysis_game_dates import resolve_analysis_game_date
 from app.services.team_codes import normalize_official_team_code
 from app.models.agent_run import AgentRun
 
@@ -76,15 +76,15 @@ async def chat_stream(
             detail="AI 서비스가 설정되지 않았습니다.",
         )
 
-    requested_as_of = payload.as_of_date or datetime.now(
-        ZoneInfo("Asia/Seoul")
-    ).date()
-    if requested_as_of > datetime.now(ZoneInfo("Asia/Seoul")).date():
-        raise HTTPException(status_code=422, detail="분석 기준일은 미래일 수 없습니다.")
-
-    # 권한 검사는 SSE 응답이 시작되기 전에 수행한다.
-    if payload.conversation_id is not None:
-        async with session_factory() as db:
+    # 날짜 검증과 권한 검사는 SSE/LLM 및 대화 생성 전에 수행한다.
+    async with session_factory() as db:
+        try:
+            requested_as_of = await resolve_analysis_game_date(
+                db, team_code=current_user.team_code, requested_date=payload.as_of_date,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        if payload.conversation_id is not None:
             conversation_id = str(payload.conversation_id)
 
             await require_conversation_access(
@@ -184,6 +184,7 @@ async def chat_stream(
                             "conversation",
                             {
                                 "conversation_id": conversation.id,
+                                "as_of_date": requested_as_of.isoformat(),
                             },
                         )
 
