@@ -10,7 +10,7 @@ from app.models.user import User
 from app.services.kbo_player_records import (
     PlayerRecordError, get_player_record_payload, get_team_record_payload, innings_to_outs,
     canonical_team_code, import_snapshot, import_team_snapshot, normalize_team_snapshot,
-    record_metrics, team_code_aliases,
+    pitcher_fip_constant, record_metrics, team_code_aliases,
 )
 
 
@@ -119,6 +119,37 @@ def test_rates_require_known_denominators_and_reject_invalid_team_record_rows():
     assert record_metrics({"TBF": "0", "SO": "0", "BB": "0"}, "pitcher")["bb_pct"] is None
     with pytest.raises(PlayerRecordError):
         normalize_team_snapshot(snapshot("standings", [None]))
+
+
+def test_sabermetrics_use_complete_denominators_and_season_fip_constant():
+    batter = record_metrics({
+        "AVG": "0.250", "OBP": "0.330", "SLG": "0.420", "PA": "460", "AB": "400",
+        "H": "100", "HR": "20", "BB": "50", "SO": "80", "SF": "5",
+    }, "batter")
+    assert batter["iso"] == 0.17
+    assert batter["k_pct"] == 17.39
+    assert batter["bb_pct"] == 10.87
+    assert batter["babip"] == 0.262
+    assert batter["fip"] is None
+
+    constant = pitcher_fip_constant([{
+        "IP": "100", "ER": "40", "HR": "10", "BB": "30", "HBP": "5", "SO": "100",
+    }])
+    assert constant == 3.25
+    pitcher = record_metrics({
+        "IP": "100", "TBF": "400", "H": "90", "HR": "10", "BB": "30", "HBP": "5",
+        "SO": "100", "SAC": "3", "SF": "4", "ERA": "3.60", "WHIP": "1.20",
+    }, "pitcher", fip_constant=constant)
+    assert pitcher["k_per_9"] == 9.0
+    assert pitcher["bb_per_9"] == 2.7
+    assert pitcher["hr_per_9"] == 0.9
+    assert pitcher["babip"] == 0.317
+    assert pitcher["fip"] == 3.6
+    assert pitcher["fip_constant"] == 3.25
+
+    incomplete_batter = record_metrics({"H": "10", "HR": "1", "AB": "50", "SO": "10"}, "batter")
+    assert incomplete_batter["babip"] is None
+    assert pitcher_fip_constant([{"IP": "10", "ER": "3"}]) is None
 
 
 @pytest.mark.parametrize(("innings", "outs"), [

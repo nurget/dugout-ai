@@ -15,14 +15,16 @@ const summaries: Record<Category, Array<[string, string[]]>> = {
   batter: [["출전과 타격", ["G", "PA", "AB", "AVG", "H", "R", "RBI"]], ["장타", ["2B", "3B", "HR", "TB", "SLG", "OPS"]], ["출루와 선구", ["OBP", "BB", "IBB", "HBP", "HP", "SO", "GDP"]], ["주루와 팀 타격", ["SB", "CS", "SAC", "SF"]]],
   pitcher: [["등판과 승패", ["G", "W", "L", "WPCT", "SV", "HLD", "QS"]], ["이닝과 실점", ["IP", "ERA", "R", "ER", "CG", "SHO"]], ["상대 타자와 출루", ["TBF", "BF", "NP", "WHIP", "H", "HR", "BB", "IBB", "HBP", "HP"]], ["탈삼진과 제구", ["SO", "WP", "BK"]]],
 };
-const sortOptions: Record<Category, string[]> = { batter: ["PA", "AVG", "H", "HR", "RBI", "OPS", "OBP", "SLG", "SB", "선수명"], pitcher: ["IP", "ERA", "WHIP", "SO", "W", "SV", "HLD", "선수명"] };
-const rateSorts: Record<Category, string[]> = { batter: ["AVG", "OPS", "OBP", "SLG"], pitcher: ["ERA", "WHIP"] };
+const sortOptions: Record<Category, string[]> = { batter: ["PA", "AVG", "OPS", "OBP", "SLG", "ISO", "BABIP", "BB%", "K%", "H", "HR", "RBI", "SB", "선수명"], pitcher: ["IP", "ERA", "FIP", "WHIP", "K-BB%", "K/9", "BB/9", "HR/9", "BABIP", "SO", "W", "SV", "HLD", "선수명"] };
+const rateSorts: Record<Category, string[]> = { batter: ["AVG", "OPS", "OBP", "SLG", "ISO", "BABIP", "BB%", "K%"], pitcher: ["ERA", "FIP", "WHIP", "K-BB%", "K/9", "BB/9", "HR/9", "BABIP"] };
+const lowerIsBetter: Record<Category, string[]> = { batter: ["K%"], pitcher: ["ERA", "FIP", "WHIP", "BB/9", "HR/9", "BABIP"] };
 const metricDescriptions: Record<string, string> = { AVG: "안타 ÷ 타수", OBP: "타석에서 출루한 비율", SLG: "루타 ÷ 타수", OPS: "출루율 + 장타율", ERA: "9이닝 기준 자책점", WHIP: "(안타 + 볼넷) ÷ 투구 이닝", SO: "타자는 삼진, 투수는 탈삼진", IP: "⅓과 ⅔은 각각 아웃카운트 1개와 2개예요" };
-const metricKeys: Record<string, string> = { AVG: "avg", OBP: "obp", SLG: "slg", OPS: "ops", ERA: "era", WHIP: "whip", ISO: "iso" };
+const metricKeys: Record<string, string> = { AVG: "avg", OBP: "obp", SLG: "slg", OPS: "ops", ERA: "era", WHIP: "whip", ISO: "iso", BABIP: "babip", "BB%": "bb_pct", "K%": "k_pct", "K-BB%": "k_minus_bb_pct", FIP: "fip", "K/9": "k_per_9", "BB/9": "bb_per_9", "HR/9": "hr_per_9" };
+const metricDecimals: Record<string, number> = { AVG: 3, OBP: 3, SLG: 3, OPS: 3, ISO: 3, BABIP: 3, ERA: 2, WHIP: 2, FIP: 2, "BB%": 1, "K%": 1, "K-BB%": 1, "K/9": 2, "BB/9": 2, "HR/9": 2 };
 const valueOf = (record: Player, field: string) => {
   if (record.raw_fields[field]) return record.raw_fields[field];
   const value = record.metrics?.[metricKeys[field]];
-  return value !== null && value !== undefined ? value.toFixed(["ERA", "WHIP"].includes(field) ? 2 : 3) : "—";
+  return value !== null && value !== undefined ? value.toFixed(metricDecimals[field] ?? 3) : "—";
 };
 
 function Stat({ field, record, category, large = false }: { field: string; record: Player; category: Category; large?: boolean }) {
@@ -31,7 +33,18 @@ function Stat({ field, record, category, large = false }: { field: string; recor
 
 function PlayerSheet({ record, category, season }: { record: Player; category: Category; season: number }) {
   const groups = summaries[category];
-  const advanced = (category === "batter" ? [["iso", "ISO", "장타율 − 타율. 순수 장타력을 보는 지표예요."], ["k_pct", "삼진 비율", "삼진 ÷ 타석 × 100"], ["bb_pct", "볼넷 비율", "볼넷 ÷ 타석 × 100"]] : [["k_pct", "탈삼진 비율", "탈삼진 ÷ 상대 타자 × 100"], ["bb_pct", "볼넷 비율", "볼넷 ÷ 상대 타자 × 100"], ["k_minus_bb_pct", "K−BB%", "탈삼진 비율 − 볼넷 비율"]]).filter(([key]) => record.metrics?.[key] != null);
+  const advanced = (category === "batter" ? [
+    ["iso", "ISO", "장타율 − 타율. 순수 장타력을 보는 지표예요."],
+    ["babip", "BABIP", "홈런을 제외한 인플레이 타구가 안타가 된 비율이에요."],
+    ["k_pct", "삼진 비율", "삼진 ÷ 타석 × 100"],
+    ["bb_pct", "볼넷 비율", "볼넷 ÷ 타석 × 100"],
+  ] : [
+    ["fip", "FIP", `피홈런·볼넷·사구·탈삼진으로 계산해요. 시즌 상수 ${record.metrics?.fip_constant?.toFixed(3) ?? "확인 불가"}`],
+    ["k_per_9", "K/9", "9이닝당 탈삼진"], ["bb_per_9", "BB/9", "9이닝당 볼넷"], ["hr_per_9", "HR/9", "9이닝당 피홈런"],
+    ["babip", "피BABIP", "홈런을 제외한 인플레이 타구의 피안타 비율이에요."],
+    ["k_pct", "탈삼진 비율", "탈삼진 ÷ 상대 타자 × 100"], ["bb_pct", "볼넷 비율", "볼넷 ÷ 상대 타자 × 100"],
+    ["k_minus_bb_pct", "K−BB%", "탈삼진 비율 − 볼넷 비율"],
+  ]).filter(([key]) => record.metrics?.[key] != null);
   const groupedKeys = new Set(groups.flatMap(([, fields]) => fields));
   const extraFields = Object.keys(record.raw_fields).filter((key) => !groupedKeys.has(key) && !["선수명", "팀명", "순위"].includes(key));
   const bars = (category === "batter" ? ["H", "2B", "3B", "HR"] : ["SO", "BB", "H", "HR"]).filter((key) => numericStat(record.raw_fields[key]) !== null);
@@ -45,7 +58,7 @@ function PlayerSheet({ record, category, season }: { record: Player; category: C
       const present = fields.filter((key) => valueOf(record, key) !== "—");
       return present.length ? <section className="sheet-group" key={title}><h4>{title}</h4><dl>{present.map((key) => <div key={key}><dt>{statName(key, category)}<small>{key}</small></dt><dd>{valueOf(record, key)}</dd></div>)}</dl></section> : null;
     })}</div>
-    {advanced.length > 0 && <section className="sheet-advanced"><h4>기록으로 살펴본 지표</h4><p>원본 기록을 정해진 산식으로 계산했어요.</p><dl>{advanced.map(([key, label, description]) => <div key={key}><dt>{label}</dt><dd>{record.metrics?.[key]?.toFixed(key === "iso" ? 3 : 1)}{key !== "iso" && "%"}</dd><small>{description}</small></div>)}</dl></section>}
+    {advanced.length > 0 && <section className="sheet-advanced"><h4>기록으로 살펴본 지표</h4><p>원본 기록을 정해진 산식으로 계산했어요. 값이 없으면 필요한 분모가 확인되지 않은 경우예요.</p><dl>{advanced.map(([key, label, description]) => { const percent = ["k_pct", "bb_pct", "k_minus_bb_pct"].includes(key); const decimals = ["iso", "babip"].includes(key) ? 3 : percent ? 1 : 2; return <div key={key}><dt>{label}</dt><dd>{record.metrics?.[key]?.toFixed(decimals)}{percent && "%"}</dd><small>{description}</small></div>; })}</dl></section>}
     {bars.length > 0 && <section className="sheet-chart"><h4>{category === "batter" ? "타격 기록 한눈에 보기" : "상대 타자 결과 한눈에 보기"}</h4><p>각 항목의 실제 누적 횟수예요.</p>{bars.map((key) => <div className="sheet-bar" key={key}><span>{statName(key, category)}</span><div><i style={{ width: `${((numericStat(record.raw_fields[key]) ?? 0) / max) * 100}%` }} /></div><strong>{valueOf(record, key)}</strong></div>)}</section>}
     {(profile.length > 0 || extraFields.length > 0) && <details className="sheet-additional"><summary>선수 정보와 추가 기록 보기</summary><dl>{profile.map(([key, value]) => <div key={`profile-${key}`}><dt>{profileLabels[key] ?? key}</dt><dd>{value}</dd></div>)}{extraFields.map((key) => <div key={key}><dt>{statName(key, category)}</dt><dd>{valueOf(record, key)}</dd></div>)}</dl></details>}
     {calculated.length > 0 && <p className="sheet-calculation-note">{calculated.join(" · ")}는 원본 기록으로 계산한 지표예요.</p>}
@@ -103,7 +116,7 @@ export function KboRecords({ logout, initialCategory = "batter", initialTeam = "
   const pageRows = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const availableSorts = sortOptions[category].filter((key) => key === "선수명" || records.some((record) => valueOf(record, key) !== "—"));
   const chooseCategory = (next: Category) => { setCategory(next); setSort(next === "batter" ? "PA" : "IP"); setSortDirection("desc"); setMinimum(0); setQualifiedOnly(false); setPage(1); };
-  const chooseSort = (next: string) => { setSort(next); setSortDirection(next === "선수명" || next === "ERA" || next === "WHIP" ? "asc" : "desc"); setQualifiedOnly(rateSorts[category].includes(next)); setPage(1); };
+  const chooseSort = (next: string) => { setSort(next); setSortDirection(next === "선수명" || lowerIsBetter[category].includes(next) ? "asc" : "desc"); setQualifiedOnly(rateSorts[category].includes(next)); setPage(1); };
   const thresholds = [...new Set(records.map((record) => category === "batter" ? record.qualification?.min_plate_appearances : record.qualification?.min_innings).filter((value): value is number => value != null))].sort((a, b) => a - b);
   const thresholdLabel = thresholds.length === 1 ? `${thresholds[0]}${category === "batter" ? "타석" : "이닝"} 이상` : "구단별 경기 수에 따른 기준";
   const choosePlayer = (record: Player) => { setSelectedId(`${record.player_id}-${record.team_code}`); if (window.matchMedia("(max-width: 1040px)").matches) sheetRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); };
