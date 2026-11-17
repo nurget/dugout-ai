@@ -7,6 +7,8 @@
   font-optical-sizing: auto;
   font-weight: 400;
   --blue: #3182f6;
+  --brand-primary: #3182f6;
+  --brand-on-primary: #fff;
   --navy: #191f28;
   --text: #333d4b;
   --sub: #6b7684;
@@ -27,5 +29,5 @@ html { min-width: 320px; min-height: 100%; }
 body { min-width: 320px; min-height: 100vh; margin: 0; }
 button, input, textarea, select { font: inherit; }
 button { cursor: pointer; }
-button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid rgb(49 130 246 / 22%); outline-offset: 2px; }
-::selection { color: var(--navy); background: #cce2ff; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid color-mix(in srgb, var(--blue) 28%, transparent); outline-offset: 2px; }
+::selection { color: var(--navy); background: var(--weak); }

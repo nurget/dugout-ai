@@ -95,11 +95,16 @@ def test_conversation_tools_streaming_and_persistence():
         authenticate(client)
         health = client.get("/health")
         assert health.status_code == 200
+        calendar = client.get("/api/kbo/matchups/calendar", params={"season": int(os.getenv("E2E_SEASON", "2026"))})
+        assert calendar.status_code == 200, calendar.text
+        game_date = calendar.json()["latest_game_date"]
+        assert game_date, "E2E 계정 소속 구단의 경기 일정을 먼저 적재해 주세요."
 
         # 고정된 샘플 경기 정보를 활용해 조회 → 규칙 평가를 실제 실행한다.
         first = stream_chat(
             client,
             {
+                "as_of_date": game_date,
                 "message": (
                     "경기 ID 1의 상태 ID 1을 조회해줘. "
                     "1루 주자는 없다고 가정하고 투구 수 기반 교체 검토를 "
@@ -131,6 +136,7 @@ def test_conversation_tools_streaming_and_persistence():
         second = stream_chat(
             client,
             {
+                "as_of_date": game_date,
                 "conversation_id": conversation_id,
                 "message": (
                     "방금 분석한 상황에서 투구 수가 몇 구였지? "

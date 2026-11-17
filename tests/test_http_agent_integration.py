@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -12,6 +12,7 @@ from app.db.base import Base
 from app.db.session import get_db, get_session_factory
 from app.main import app
 from app.routers import agent as agent_router
+from app.models.kbo import KboGame, KboTeam
 
 
 class FakeOpenAI:
@@ -46,6 +47,13 @@ async def test_authenticated_sse_persists_messages_and_run(
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as session:
+        session.add_all([KboTeam(code="KIA", name="테스트 구단"), KboTeam(code="LG", name="테스트 상대")])
+        await session.flush()
+        session.add(KboGame(game_pk="integration-game", season=2026, season_type="REGULAR", season_phase="REGULAR",
+            game_date=date(2026, 11, 7), home_team_code="KIA", away_team_code="LG", status="Final", source_name="test"))
+        await session.commit()
 
     async def override_db():
         async with session_factory() as session:
@@ -278,6 +286,9 @@ async def test_authenticated_sse_persists_messages_and_run(
                 "kbo_games": None,
                 "kbo_pitcher_appearances": None,
                 "kbo_official_season_pitchers": None,
+                "kbo_player_records": None,
+                "kbo_team_records": None,
+                "kbo_game_lineups": None,
                 "kbo_pbp_pitching": None,
                 "kbo_plate_appearances": None,
                 "kbo_pitch_events": None,
