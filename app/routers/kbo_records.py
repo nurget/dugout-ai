@@ -9,8 +9,9 @@ from app.core.auth import CurrentUser
 from app.db.session import get_db
 from app.models.kbo import KboGame
 from app.services.kbo_player_records import (
-    get_player_record_payload, get_team_record_payload, get_record_coverage, team_code_aliases,
+    get_player_record_payload, get_team_record_payload, team_code_aliases,
 )
+from app.services.kbo_data_coverage import get_data_coverage
 
 
 router = APIRouter(prefix="/api/kbo", tags=["kbo-records"])
@@ -111,5 +112,6 @@ async def get_kbo_team_records(
 async def get_kbo_record_coverage(
     _current_user: CurrentUser, session: SessionDep,
     season: int = Query(default=2026, ge=1982, le=2100),
+    team_code: str | None = Query(default=None, min_length=2, max_length=12),
 ):
-    return await get_record_coverage(session, season=season)
+    return await get_data_coverage(session, season=season, team_code=team_code)
